@@ -1,0 +1,66 @@
+name: Build Futebol GS (PSP ISO)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar o codigo
+        uses: actions/checkout@v4
+
+      - name: Criar Makefile do PSP
+        run: |
+          cat > Makefile <<'EOF'
+          TARGET = futebol
+          OBJS = main.o
+          CFLAGS = -O2 -G0 -Wall
+          CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti
+          ASFLAGS = $(CFLAGS)
+          LIBS = -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpsppower -lm
+          EXTRA_TARGETS = EBOOT.PBP
+          PSP_EBOOT_TITLE = Futebol GS
+          PSPSDK = $(shell psp-config --pspsdk-path)
+          include $(PSPSDK)/lib/build.mak
+          EOF
+
+      - name: Criar script de build (roda dentro do pspdev)
+        run: |
+          cat > pspbuild.sh <<'EOF'
+          set -e
+          make
+          mkdir -p iso/PSP_GAME/SYSDIR
+          psp-strip futebol.elf -o iso/PSP_GAME/SYSDIR/BOOT.BIN
+          cp iso/PSP_GAME/SYSDIR/BOOT.BIN iso/PSP_GAME/SYSDIR/EBOOT.BIN
+          mksfoex -d MEMSIZE=1 -s CATEGORY=UG -s DISC_ID=ULUS10999 -s DISC_VERSION=1.00 'FUTEBOL GS' iso/PSP_GAME/PARAM.SFO \
+            || mksfoex -d MEMSIZE=1 'FUTEBOL GS' iso/PSP_GAME/PARAM.SFO
+          EOF
+
+      - name: Compilar com o PSPDEV
+        run: |
+          docker run --rm -v "$PWD":/src -w /src pspdev/pspdev:latest sh pspbuild.sh
+          sudo chown -R "$USER":"$USER" .
+
+      - name: Adicionar imagens opcionais (ICON0.PNG e PIC1.PNG)
+        run: |
+          if [ -f ICON0.PNG ]; then cp ICON0.PNG iso/PSP_GAME/ICON0.PNG; fi
+          if [ -f PIC1.PNG ]; then cp PIC1.PNG iso/PSP_GAME/PIC1.PNG; fi
+
+      - name: Montar a ISO
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y genisoimage
+          genisoimage -iso-level 4 -volid FUTEBOL_GS -o FutebolGS.iso iso
+          ls -lh FutebolGS.iso EBOOT.PBP
+
+      - name: Publicar arquivos
+        uses: actions/upload-artifact@v4
+        with:
+          name: FutebolGS
+          path: |
+            FutebolGS.iso
+            EBOOT.PBP
