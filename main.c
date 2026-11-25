@@ -29,7 +29,7 @@ PSP_MAIN_THREAD_ATTR(PSP_THREAD_ATTR_USER);
 #define NPL 512
 #define NSEL 16
 #define NP 5
-#define MAGIC 0x46475335u
+#define MAGIC 0x46475336u
 #define SAVEDIR "ms0:/PSP/SAVEDATA/FUTEBOLGS"
 
 #define RGB(r,g,b) (0xFF000000u|((unsigned int)(b)<<16)|((unsigned int)(g)<<8)|(unsigned int)(r))
@@ -133,13 +133,17 @@ typedef struct {
     int diff, gspd;
     int star_money, star_moved, star_off[6];
     int coach_on, coach_team, coach_form, coach_tac, coach_tp, coach_bonus, coach_money;
-    int coach_sq[8][2], coach_mk[6][2];
+    int coach_mk[6][2];
+    int coach_season, coach_titles, coach_board, coach_obj, coach_stad, cday;
+    unsigned char starter[NPL], energy[NPL];
     League coach_lg;
+    int at[6], injury, spons, bday, wc_deadline, mcnt[4];
+    League star_lg;
     Plyr plr[NPL];
     int conv[NSEL][8];
     Look slook;
     int star_nat;
-    int fame, moral, day, done, house[6], boots_lv, car, rel[5], pstate, aw[8];
+    int fame, moral, day, done, house[6], boots_lv, car, rel[5], pstate, aw[10];
     int fooded, totg, ticket, wc_pending, wc_boost, gym_n, posts, last_rate, home_reward;
 } Save;
 static Save S;
@@ -508,6 +512,7 @@ static int ot = -1, oi = -1, lastk = -1, prevk = -1;
 static int ctrl = 3, ctrlfix = -1;
 static int tactic0 = 1, tactic1 = 1;
 static int tstr[2] = {70, 70};
+static int star_at[6] = {60, 60, 60, 60, 60, 60};
 static float gs = 1.0f;
 static int gkhold[2];
 static const float HX[NP] = {0.03f, 0.22f, 0.22f, 0.50f, 0.74f};
@@ -663,6 +668,7 @@ static void human_control(int i) {
     fx = p->fx; fy = p->fy;
     if (m > 1.0f) m = 1.0f;
     spd = 1.7f + tstr[0] * 0.004f;
+    if (ctrlfix >= 0) spd *= 1.0f + (star_at[3] - 60) / 300.0f;
     if (ctrlfix >= 0) spd *= (S.slook.build == 0) ? 1.05f : ((S.slook.build == 2) ? 0.97f : 1.0f);
     if (HELD(PSP_CTRL_RTRIGGER)) spd *= 1.28f;
     if (m > 0.1f) { p->vx = p->fx * spd * m; p->vy = p->fy * spd * m; }
@@ -677,12 +683,12 @@ static void human_control(int i) {
                 dx = pl[0][j].x - p->x; dy = pl[0][j].y - p->y;
                 d = sqrtf(dx * dx + dy * dy);
                 sp = 3.2f + d * 0.028f; if (sp > 7) sp = 7;
-                jitter(&dx, &dy, tstr[0] + 15);
+                jitter(&dx, &dy, tstr[0] + 15 + (star_at[1] - 60) / 2);
             } else { dx = fx; dy = fy; sp = 5; }
             kick(0, i, dx, dy, sp);
         } else if (PRESSED(PSP_CTRL_SQUARE)) {
             float ty = 147 + ay * 26, dx = FX1 - p->x, dy = ty - p->y;
-            jitter(&dx, &dy, tstr[0]);
+            jitter(&dx, &dy, tstr[0] + (star_at[0] - 60) / 2);
             kick(0, i, dx, dy, 7.4f + ((ctrlfix >= 0 && S.slook.build == 2) ? 0.5f : 0.0f));
         } else if (PRESSED(PSP_CTRL_TRIANGLE)) {
             kick(0, i, fx, fy, 8.6f);
@@ -692,14 +698,14 @@ static void human_control(int i) {
             Pl *o = &pl[1][oi];
             float dx = o->x - p->x, dy = o->y - p->y;
             if (dx * dx + dy * dy < 20.0f * 20.0f) {
-                if (rand() % 100 < 65) { o->nocatch = 30; ot = 0; oi = i; }
+                if (rand() % 100 < 65 + (star_at[4] - 60) / 3) { o->nocatch = 30; ot = 0; oi = i; }
                 else p->nocatch = 25;
             }
         } else if (ot == -1 && PRESSED(PSP_CTRL_SQUARE)) {
             float dx = bx - p->x, dy = by - p->y;
             if (dx * dx + dy * dy < 14.0f * 14.0f) {
                 dx = FX1 - bx; dy = 147 - by;
-                jitter(&dx, &dy, tstr[0]);
+                jitter(&dx, &dy, tstr[0] + (star_at[0] - 60) / 2);
                 kick(0, i, dx, dy, 7.0f);
             }
         }
@@ -915,6 +921,7 @@ static MRes play_match(int ta, int tb, int half_secs, int tac, int starfix, int 
     tactic0 = tac; tactic1 = 1;
     if (tstr[1] > tstr[0] + 8) tactic1 = 2; else if (tstr[1] < tstr[0] - 12) tactic1 = 0;
     ctrlfix = starfix; ctrl = (starfix >= 0) ? starfix : 3;
+    { int q; for (q = 0; q < 6; q++) star_at[q] = (starfix >= 0) ? S.at[q] : 60; }
     memset(pl, 0, sizeof pl);
     map_side(0, ta, starfix);
     map_side(1, tb, -1);
@@ -1168,60 +1175,225 @@ static void run_league(int n, int me_id, int mode, const char *title, int dbl) {
     }
 }
 
+/* ---------------- Calendario ---------------- */
+#define Y0 2027
+static const char *MESN[12] = {"Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"};
+static const char *DIAN[7] = {"Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"};
+typedef struct { int m, d; const char *n; } Hol;
+static const Hol HOL[5] = {{0, 1, "Ano Novo"}, {1, 14, "Dia dos Namorados"}, {4, 1, "Dia do Trabalho"},
+                           {8, 7, "Independencia"}, {11, 25, "Natal"}};
+
+static int doy_of(int day) { return (day - 1) % 360; }
+static void date_str(int day, char *o) {
+    int d = day - 1;
+    snprintf(o, 24, "%02d %s %d", d % 30 + 1, MESN[(d % 360) / 30], Y0 + d / 360);
+}
+static int window_open(int day) { int m = doy_of(day) / 30; return m == 0 || m == 6; }
+static int match_k(int doy, int total) {
+    int k;
+    if (doy < 44 || (doy - 44) % 30) return -1;
+    k = (doy - 44) / 30;
+    return (k < total) ? k : -1;
+}
+/* mode 0 = estrela (10 partidas), 1 = treinador (7 rodadas). Retorna tipo: 1 feriado, 2 jogo, 3 prazo, 4 aniversario */
+static int cal_event(int day, int mode, char *o) {
+    int doy = doy_of(day), mo = doy / 30, dom = doy % 30 + 1, k;
+    o[0] = 0;
+    k = match_k(doy, mode == 0 ? 10 : 7);
+    if (k >= 0) { snprintf(o, 40, mode == 0 ? "Partida %d/10" : "Rodada %d/7", k + 1); return 2; }
+    for (k = 0; k < 5; k++) if (HOL[k].m == mo && HOL[k].d == dom) { snprintf(o, 40, "%s", HOL[k].n); return 1; }
+    if (mode == 0 && S.bday == doy) { snprintf(o, 40, "Seu aniversario"); return 4; }
+    if (mode == 0 && S.wc_pending && day == S.wc_deadline) { snprintf(o, 40, "Prazo: embarque da Copa"); return 3; }
+    return 0;
+}
+static void list_screen(const char *title, const char **ln, int n) {
+    int i;
+    for (;;) {
+        frame();
+        if (PRESSED(PSP_CTRL_CROSS) || PRESSED(PSP_CTRL_CIRCLE)) break;
+        bg(title);
+        for (i = 0; i < n && i < 16; i++) tx(24, 36 + i * 14, C_WHITE, "%s", ln[i]);
+        tx(8, SH - 12, RGB(170, 200, 170), "X: continuar");
+    }
+}
+static void calendar_screen(int day, int mode) {
+    int mabs = (day - 1) / 30, k, i;
+    for (;;) {
+        int mo, yr, first, off, shown = 0;
+        char t[72], dt[24];
+        frame();
+        if (PRESSED(PSP_CTRL_LEFT) && mabs > 0) mabs--;
+        if (PRESSED(PSP_CTRL_RIGHT)) mabs++;
+        if (PRESSED(PSP_CTRL_CROSS) || PRESSED(PSP_CTRL_CIRCLE)) break;
+        mo = mabs % 12; yr = Y0 + mabs / 12; first = mabs * 30 + 1; off = (first - 1) % 7;
+        bg("CALENDARIO");
+        date_str(day, dt);
+        tx(20, 30, C_GOLD, "%s %d  (hoje: %s)", MESN[mo], yr, dt);
+        if (window_open(first)) tx(300, 30, RGB(120, 255, 120), "JANELA ABERTA");
+        for (i = 0; i < 7; i++) tx(28 + i * 62, 44, C_GOLD, "%s", DIAN[i]);
+        for (k = 0; k < 30; k++) {
+            int d = first + k, idx = off + k, cx = 24 + (idx % 7) * 62, cy = 56 + (idx / 7) * 22;
+            int ev = cal_event(d, mode, t);
+            u32 col = (ev == 2) ? RGB(200, 50, 50) : ((ev == 1) ? RGB(40, 120, 160) : ((ev == 4) ? RGB(170, 60, 150) : ((ev == 3) ? RGB(200, 120, 20) : RGB(30, 80, 45))));
+            rect(cx, cy, 58, 20, (d == day) ? C_GOLD : col);
+            tx(cx + 4, cy + 6, (d == day) ? C_DARK : C_WHITE, "%d", k + 1);
+        }
+        for (k = 0; k < 30 && shown < 5; k++) {
+            if (cal_event(first + k, mode, t)) { tx(24, 190 + shown * 13, C_WHITE, "%02d: %s", k + 1, t); shown++; }
+        }
+        tx(8, SH - 12, RGB(170, 200, 170), "Esq/Dir: mes   X: voltar   Vermelho=jogo");
+    }
+}
+
 /* ---------------- Seja Treinador ---------------- */
-static int boost_of(int o) { return 1 + ((o > 60) ? (o - 60) / 6 : 0); }
+static const char *FORM[4] = {"4-4-2", "4-3-3", "3-5-2", "5-4-1"};
+static const float FA[4] = {1.00f, 1.12f, 1.04f, 0.88f};
+static const float FD[4] = {1.00f, 1.10f, 1.05f, 0.85f};
+static const float TA_[3] = {0.85f, 1.00f, 1.15f};
+static const float TD_[3] = {0.85f, 1.00f, 1.12f};
+
+static void cmsg(const char *a, const char *b) { end_screen("SEJA TREINADOR", a, b, ""); }
 static int price_of(int o) { return (o - 50) * (o - 50) / 20 + 2; }
-static int coach_str(void) {
-    int i, v = TM[S.coach_team].str + S.coach_bonus;
-    for (i = 0; i < 8; i++) if (S.coach_sq[i][0] > 0) v += boost_of(S.coach_sq[i][0]);
+static int team_count(int t) { int i, n = 0; for (i = 0; i < NPL; i++) if (S.plr[i].team == t) n++; return n; }
+
+static void coach_auto_lineup(void) {
+    static const int want[5] = {3, 2, 2, 1, 0};
+    int ids[12], n = roster_of(S.coach_team, ids), used[12], i, k, best;
+    memset(used, 0, sizeof used);
+    for (i = 0; i < n; i++) S.starter[ids[i]] = 0;
+    for (i = 0; i < 5; i++) {
+        best = -1;
+        for (k = 0; k < n; k++)
+            if (!used[k] && S.plr[ids[k]].pos == want[i] && (best < 0 || S.plr[ids[k]].ovr > S.plr[ids[best]].ovr)) best = k;
+        if (best < 0) for (k = 0; k < n; k++)
+            if (!used[k] && (best < 0 || S.plr[ids[k]].ovr > S.plr[ids[best]].ovr)) best = k;
+        if (best >= 0) { used[best] = 1; S.starter[ids[best]] = 1; }
+    }
+}
+static int coach_lineup_str(void) {
+    int ids[12], n = roster_of(S.coach_team, ids), i, cnt = 0, sum = 0, g = 0, d = 0, m = 0, a = 0, v;
+    for (i = 0; i < n; i++) {
+        int u = ids[i];
+        if (!S.starter[u]) continue;
+        v = S.plr[u].ovr - ((S.energy[u] < 40) ? (40 - S.energy[u]) / 3 : 0);
+        sum += v; cnt++;
+        switch (S.plr[u].pos) { case 3: g = 1; break; case 2: d = 1; break; case 1: m = 1; break; default: a = 1; break; }
+    }
+    if (cnt < 5) sum += (5 - cnt) * 30;
+    v = sum / 5;
+    if (!g) v -= 6;
+    if (!d) v -= 2;
+    if (!m) v -= 2;
+    if (!a) v -= 2;
+    if (g && d && m && a) v += 2;
     return v;
 }
-static void gen_market(void) {
-    int i;
-    for (i = 0; i < 6; i++) { S.coach_mk[i][0] = 58 + rand() % 37; S.coach_mk[i][1] = rand() % 576; }
+static int coach_str(void) { return coach_lineup_str() + S.coach_bonus; }
+static int coach_wages(void) {
+    int ids[12], n = roster_of(S.coach_team, ids), i, s = 0;
+    for (i = 0; i < n; i++) s += S.plr[ids[i]].ovr;
+    return s / 60;
 }
-static void coach_extra(void) {
-    int n = 0, i;
-    for (i = 0; i < 8; i++) if (S.coach_sq[i][0] > 0) n++;
-    tx(20, 32, C_GOLD, "Caixa: %d mi   Reforcos: %d/8   Forca: %d", S.coach_money, n, coach_str());
+static int coach_round_day(int r) { return (S.coach_season - 1) * 360 + 44 + 30 * r + 1; }
+static void coach_day_pass(void) {
+    int ids[12], n = roster_of(S.coach_team, ids), i;
+    S.cday++;
+    for (i = 0; i < n; i++) { int e = S.energy[ids[i]] + 2; S.energy[ids[i]] = (unsigned char)(e > 100 ? 100 : e); }
 }
-static void coach_sell(void) {
-    char b[9][64], nm[24];
-    const char *it[9];
-    int map[9], n, k, c;
+
+static void coach_squad_extra(void) {
+    int ids[12], n = roster_of(S.coach_team, ids), i, c = 0;
+    for (i = 0; i < n; i++) if (S.starter[ids[i]]) c++;
+    tx(20, 32, C_GOLD, "Titulares: %d/5   Forca do time: %d", c, coach_str());
+}
+static void coach_squad(void) {
+    static char b[14][64];
+    const char *it[14];
+    int ids[12], n, k, c, sel = 0;
     for (;;) {
-        n = 0;
-        for (k = 0; k < 8; k++) if (S.coach_sq[k][0] > 0) {
-            pname(S.coach_sq[k][1], nm);
-            snprintf(b[n], 64, "%-12s %2d  vender por %d mi", nm, S.coach_sq[k][0], price_of(S.coach_sq[k][0]) * 70 / 100);
-            it[n] = b[n]; map[n] = k; n++;
+        n = roster_of(S.coach_team, ids);
+        for (k = 0; k < n; k++) {
+            int u = ids[k];
+            snprintf(b[k], 64, "%s %-12s %s %2d  En %3d", S.starter[u] ? "[T]" : "[ ]", S.plr[u].name, POSA[S.plr[u].pos % 4], S.plr[u].ovr, S.energy[u]);
+            it[k] = b[k];
         }
-        if (n == 0) { end_screen("MERCADO", "Nenhum reforco no elenco", "", ""); return; }
-        it[n] = "Voltar";
-        menu_extra = coach_extra;
-        c = menu("VENDER REFORCO", it, n + 1, 0, 48, NULL);
+        it[n] = "Escalacao automatica"; it[n + 1] = "Voltar";
+        menu_extra = coach_squad_extra;
+        c = menu("ELENCO E ESCALACAO", it, n + 2, sel, 48, "X: titular/reserva   O: voltar");
         menu_extra = NULL;
-        if (c < 0 || c == n) return;
-        k = map[c];
-        S.coach_money += price_of(S.coach_sq[k][0]) * 70 / 100;
-        S.coach_sq[k][0] = 0;
+        if (c < 0 || c == n + 1) return;
+        sel = c;
+        if (c == n) { coach_auto_lineup(); save_game(); continue; }
+        {
+            int u = ids[c], cnt = 0, i;
+            for (i = 0; i < n; i++) if (S.starter[ids[i]]) cnt++;
+            if (S.starter[u]) S.starter[u] = 0;
+            else if (cnt >= 5) cmsg("Maximo de 5 titulares.", "Tire alguem antes.");
+            else S.starter[u] = 1;
+        }
         save_game();
     }
 }
+
+static void coach_gen_market(void) {
+    int i, j, uid, tries, ok;
+    for (i = 0; i < 6; i++) {
+        S.coach_mk[i][0] = -1;
+        for (tries = 0; tries < 60; tries++) {
+            uid = rand() % NPL; ok = 1;
+            if (S.plr[uid].team == S.coach_team || S.plr[uid].team >= MAXT) ok = 0;
+            for (j = 0; j < i; j++) if (S.coach_mk[j][0] == uid) ok = 0;
+            if (ok) { S.coach_mk[i][0] = uid; break; }
+        }
+    }
+}
+static void coach_extra(void) {
+    tx(20, 32, C_GOLD, "Caixa: %d mi  Elenco: %d/12  Janela: %s", S.coach_money, team_count(S.coach_team), window_open(S.cday) ? "ABERTA" : "fechada");
+}
+static void coach_sell(void) {
+    static char b[13][64];
+    const char *it[13];
+    int ids[12], n, k, c;
+    for (;;) {
+        n = roster_of(S.coach_team, ids);
+        for (k = 0; k < n; k++) {
+            snprintf(b[k], 64, "%-12s %s %2d  vender %d mi", S.plr[ids[k]].name, POSA[S.plr[ids[k]].pos % 4], S.plr[ids[k]].ovr, price_of(S.plr[ids[k]].ovr) * 70 / 100);
+            it[k] = b[k];
+        }
+        it[n] = "Voltar";
+        menu_extra = coach_extra;
+        c = menu("VENDER JOGADOR", it, n + 1, 0, 48, NULL);
+        menu_extra = NULL;
+        if (c < 0 || c == n) return;
+        if (!window_open(S.cday)) { cmsg("Janela de transferencias fechada.", "Abre em Janeiro e Julho."); continue; }
+        if (n <= 6) { cmsg("Elenco minimo: 6 jogadores.", ""); continue; }
+        {
+            int u = ids[c], d = -1, tries;
+            for (tries = 0; tries < 80; tries++) {
+                int t = rand() % MAXT;
+                if (t != S.coach_team && team_count(t) < 12) { d = t; break; }
+            }
+            if (d < 0) { cmsg("Nenhum clube interessado.", ""); continue; }
+            S.coach_money += price_of(S.plr[u].ovr) * 70 / 100;
+            S.plr[u].team = (unsigned char)d; S.starter[u] = 0;
+            recalc_team(d); recalc_team(S.coach_team);
+            cmsg("Jogador vendido!", TM[d].name);
+            save_game();
+        }
+    }
+}
 static void coach_market(void) {
-    char b[9][64], nm[24];
+    static char b[9][64];
     const char *it[9];
     int sel = 0, c, k;
     for (k = 0; k < 9; k++) it[k] = b[k];
     for (;;) {
         for (k = 0; k < 6; k++) {
-            int o = S.coach_mk[k][0];
-            if (o > 0) {
-                pname(S.coach_mk[k][1], nm);
-                snprintf(b[k], 64, "%-12s %s %2d  +%d  %d mi", nm, POSA[S.coach_mk[k][1] % 3], o, boost_of(o), price_of(o));
-            } else snprintf(b[k], 64, "-- contratado --");
+            int u = S.coach_mk[k][0];
+            if (u >= 0) snprintf(b[k], 64, "%-11s %s %2d %-9.9s %d mi", S.plr[u].name, POSA[S.plr[u].pos % 4], S.plr[u].ovr, TM[S.plr[u].team].name, price_of(S.plr[u].ovr));
+            else snprintf(b[k], 64, "-- contratado --");
         }
-        snprintf(b[6], 64, "Vender um reforco");
+        snprintf(b[6], 64, "Vender um jogador");
         snprintf(b[7], 64, "Novas ofertas (custo 2 mi)");
         snprintf(b[8], 64, "Voltar");
         menu_extra = coach_extra;
@@ -1230,106 +1402,222 @@ static void coach_market(void) {
         if (c < 0 || c == 8) return;
         sel = c;
         if (c < 6) {
-            int o = S.coach_mk[c][0], slot = -1;
-            if (o <= 0) continue;
-            for (k = 0; k < 8; k++) if (S.coach_sq[k][0] == 0) { slot = k; break; }
-            if (slot < 0) { end_screen("MERCADO", "Elenco cheio (8 reforcos)", "Venda alguem antes.", ""); continue; }
-            if (S.coach_money < price_of(o)) { end_screen("MERCADO", "Caixa insuficiente", "", ""); continue; }
-            S.coach_money -= price_of(o);
-            S.coach_sq[slot][0] = o; S.coach_sq[slot][1] = S.coach_mk[c][1];
-            S.coach_mk[c][0] = 0;
+            int u = S.coach_mk[c][0], old;
+            if (u < 0) continue;
+            if (!window_open(S.cday)) { cmsg("Janela de transferencias fechada.", "Abre em Janeiro e Julho."); continue; }
+            if (team_count(S.coach_team) >= 12) { cmsg("Elenco cheio (12 jogadores).", "Venda alguem antes."); continue; }
+            if (S.coach_money < price_of(S.plr[u].ovr)) { cmsg("Caixa insuficiente", ""); continue; }
+            old = S.plr[u].team;
+            S.coach_money -= price_of(S.plr[u].ovr);
+            S.plr[u].team = (unsigned char)S.coach_team; S.starter[u] = 0; S.energy[u] = 100;
+            recalc_team(old); recalc_team(S.coach_team);
+            S.coach_mk[c][0] = -1;
+            cmsg("Contratacao fechada!", S.plr[u].name);
             save_game();
-        } else if (c == 6) {
-            coach_sell();
-        } else if (c == 7) {
-            if (S.coach_money < 2) end_screen("MERCADO", "Caixa insuficiente", "", "");
-            else { S.coach_money -= 2; gen_market(); save_game(); }
+        } else if (c == 6) coach_sell();
+        else if (c == 7) {
+            if (S.coach_money < 2) cmsg("Caixa insuficiente", "");
+            else { S.coach_money -= 2; coach_gen_market(); save_game(); }
         }
     }
 }
+static void coach_fin_extra(void) {
+    tx(20, 32, C_GOLD, "Caixa: %d mi   Folha: %d mi/rodada", S.coach_money, coach_wages());
+    tx(20, 46, C_WHITE, "Receita base: %d mi/rodada (+ vitorias)", 14 + 4 * S.coach_stad);
+}
+static void coach_finance(void) {
+    static const int CP[3] = {40, 80, 150};
+    char b0[64];
+    const char *it[2];
+    for (;;) {
+        int c;
+        if (S.coach_stad < 3) snprintf(b0, 64, "Ampliar estadio (nivel %d) - %d mi", S.coach_stad + 1, CP[S.coach_stad]);
+        else snprintf(b0, 64, "Estadio no nivel maximo");
+        it[0] = b0; it[1] = "Voltar";
+        menu_extra = coach_fin_extra;
+        c = menu("ESTADIO E FINANCAS", it, 2, 0, 70, NULL);
+        menu_extra = NULL;
+        if (c != 0) return;
+        if (S.coach_stad >= 3) continue;
+        if (S.coach_money < CP[S.coach_stad]) { cmsg("Caixa insuficiente", ""); continue; }
+        S.coach_money -= CP[S.coach_stad]; S.coach_stad++;
+        cmsg("Estadio ampliado!", "Mais receita por rodada.");
+        save_game();
+    }
+}
+
+static void coach_new_season(void) {
+    League *L = &S.coach_lg;
+    int ids[12], n, i, rank = 1;
+    char l2[64];
+    league_init(L, 8, S.coach_team, 0);
+    for (i = 0; i < L->n; i++) if (L->id[i] != S.coach_team && TM[L->id[i]].str > TM[S.coach_team].str) rank++;
+    S.coach_obj = (rank <= 2) ? 1 : rank - 2;
+    if (S.coach_obj > 6) S.coach_obj = 6;
+    S.coach_tp = 2;
+    n = roster_of(S.coach_team, ids);
+    for (i = 0; i < n; i++) S.energy[ids[i]] = 100;
+    coach_gen_market();
+    snprintf(l2, sizeof l2, "Meta da diretoria: terminar no top %d", S.coach_obj);
+    end_screen("SEJA TREINADOR", "NOVA TEMPORADA", l2, "Primeira rodada em 15 Fev");
+}
 static void coach_round_extra(void) {
+    char dt[24];
     draw_round();
-    tx(300, 32, C_GOLD, "Forca: %d", coach_str());
-    tx(300, 46, C_WHITE, "Caixa: %d mi", S.coach_money);
+    date_str(S.cday, dt);
+    tx(290, 32, C_GOLD, "%s", dt);
+    tx(290, 46, C_WHITE, "Forca: %d", coach_str());
+    tx(290, 60, C_WHITE, "Caixa: %d mi", S.coach_money);
+    tx(290, 74, C_WHITE, "Diretoria: %d", S.coach_board);
+    tx(290, 88, C_WHITE, "Meta: top %d", S.coach_obj);
+}
+static int coach_round(int playit) {
+    League *L = &S.coach_lg;
+    int me = league_me(L, S.coach_team), mk = find_my_fixture(L, me), a, b2, opp, mg = 0, og = 0, k, ga[8], gb[8], nd, ids[12], n, sm;
+    gL = L; gme = me;
+    a = L->fa[L->round][mk]; b2 = L->fb[L->round][mk]; opp = L->id[(a == me) ? b2 : a];
+    nd = coach_round_day(L->round);
+    while (S.cday < nd) coach_day_pass();
+    sm = coach_str();
+    if (sm < 20) sm = 20;
+    if (sm > 110) sm = 110;
+    if (playit) {
+        MRes R = play_match(S.coach_team, opp, 60, S.coach_tac, -1, sm);
+        if (R.quit) return 0;
+        mg = R.g0; og = R.g1;
+    } else {
+        sim_match((float)sm, (float)TM[opp].str + dadj(), FA[S.coach_form] * TA_[S.coach_tac], FD[S.coach_form] * TD_[S.coach_tac], &mg, &og);
+        report_screen(S.coach_team, opp, mg, og);
+    }
+    for (k = 0; k < 4; k++) {
+        if (k == mk) {
+            if (a == me) { ga[k] = mg; gb[k] = og; } else { gb[k] = mg; ga[k] = og; }
+        } else {
+            sim_match((float)TM[L->id[L->fa[L->round][k]]].str, (float)TM[L->id[L->fb[L->round][k]]].str, 1, 1, &ga[k], &gb[k]);
+        }
+    }
+    for (k = 0; k < 4; k++) l_apply(L, L->fa[L->round][k], L->fb[L->round][k], ga[k], gb[k]);
+    results_screen(L, ga, gb);
+    L->round++;
+    {
+        int inc = 14 + 4 * S.coach_stad + ((mg > og) ? 5 : ((mg == og) ? 2 : 0)), wag = coach_wages();
+        char l1[64], l2[64];
+        S.coach_money += inc - wag;
+        S.coach_board += (mg > og) ? 2 : ((mg == og) ? 0 : -2);
+        if (S.coach_money < 0) S.coach_board -= 5;
+        if (S.coach_board > 100) S.coach_board = 100;
+        snprintf(l1, sizeof l1, "Receita %d mi  Folha %d mi", inc, wag);
+        snprintf(l2, sizeof l2, "Caixa: %d mi   Diretoria: %d", S.coach_money, S.coach_board);
+        end_screen("FINANCAS DA RODADA", l1, l2, "");
+    }
+    n = roster_of(S.coach_team, ids);
+    for (k = 0; k < n; k++) {
+        int e = S.energy[ids[k]] + (S.starter[ids[k]] ? -12 : 15);
+        S.energy[ids[k]] = (unsigned char)(e < 0 ? 0 : (e > 100 ? 100 : e));
+    }
+    if (S.coach_tp < 5) S.coach_tp++;
+    coach_gen_market();
+    return 1;
+}
+/* retorna 1 se foi demitido */
+static int coach_season_end(void) {
+    League *L = &S.coach_lg;
+    int o[16], me = league_me(L, S.coach_team), pos = 0;
+    char l1[64], l2[64], l3[64];
+    l_order(L, o);
+    while (o[pos] != me) pos++;
+    pos++;
+    snprintf(l1, sizeof l1, "Temporada %d: %do lugar", S.coach_season, pos);
+    if (pos == 1) {
+        S.coach_titles++; S.coach_money += 60; S.coach_board += 30;
+        snprintf(l2, sizeof l2, "CAMPEAO! Premio de 60 mi.");
+    } else if (pos <= S.coach_obj) {
+        S.coach_board += 15; S.coach_money += 20;
+        snprintf(l2, sizeof l2, "Meta cumprida (top %d). Premio de 20 mi.", S.coach_obj);
+    } else {
+        S.coach_board -= (pos > S.coach_obj + 2) ? 30 : 20;
+        snprintf(l2, sizeof l2, "Meta (top %d) nao cumprida.", S.coach_obj);
+    }
+    if (S.coach_board > 100) S.coach_board = 100;
+    snprintf(l3, sizeof l3, "Diretoria: %d   Titulos: %d", S.coach_board, S.coach_titles);
+    end_screen("FIM DA TEMPORADA", l1, l2, l3);
+    table_screen(L, me, "SEJA TREINADOR");
+    if (S.coach_board <= 0) {
+        end_screen("SEJA TREINADOR", "VOCE FOI DEMITIDO!", "A diretoria perdeu a paciencia.", "");
+        S.coach_on = 0;
+        save_game();
+        return 1;
+    }
+    S.coach_season++;
+    coach_new_season();
+    save_game();
+    return 0;
 }
 static void coach_run(void) {
-    static const char *FORM[4] = {"4-4-2", "4-3-3", "3-5-2", "5-4-1"};
-    static const float FA[4] = {1.00f, 1.12f, 1.04f, 0.88f};
-    static const float FD[4] = {1.00f, 1.10f, 1.05f, 0.85f};
-    static const float TA_[3] = {0.85f, 1.00f, 1.15f};
-    static const float TD_[3] = {0.85f, 1.00f, 1.12f};
-    League *L = &S.coach_lg;
-    int me = league_me(L, S.coach_team), k, c, o[16], sel = 4;
-    char b[7][64];
-    const char *it[7];
-    gL = L; gme = me;
-    for (k = 0; k < 7; k++) it[k] = b[k];
-    while (L->round < L->nr) {
-        int ga[8], gb[8], mk = find_my_fixture(L, me), a, b2, opp, mg = 0, og = 0;
-        a = L->fa[L->round][mk]; b2 = L->fb[L->round][mk]; opp = (a == me) ? b2 : a;
+    char b[12][64];
+    const char *it[12];
+    int sel = 6, c, k;
+    for (k = 0; k < 12; k++) it[k] = b[k];
+    for (;;) {
+        League *L = &S.coach_lg;
+        int me = league_me(L, S.coach_team);
+        gL = L; gme = me;
         snprintf(b[0], 64, "Formacao: %s", FORM[S.coach_form]);
         snprintf(b[1], 64, "Tatica: %s", TACN[S.coach_tac]);
         snprintf(b[2], 64, "Treinar elenco (+1 forca) [%d pts]", S.coach_tp);
-        snprintf(b[3], 64, "Mercado de transferencias");
-        snprintf(b[4], 64, "Jogar rodada");
-        snprintf(b[5], 64, "Ver tabela");
-        snprintf(b[6], 64, "Salvar e sair");
+        snprintf(b[3], 64, "Elenco e escalacao");
+        snprintf(b[4], 64, "Mercado de transferencias");
+        snprintf(b[5], 64, "Estadio e financas");
+        snprintf(b[6], 64, "Jogar rodada (simular)");
+        snprintf(b[7], 64, "Jogar rodada (voce joga a partida)");
+        snprintf(b[8], 64, "Calendario");
+        snprintf(b[9], 64, "Avancar 15 dias");
+        snprintf(b[10], 64, "Ver tabela");
+        snprintf(b[11], 64, "Salvar e sair");
         menu_extra = coach_round_extra;
-        c = menu("SEJA TREINADOR", it, 7, sel, 46 + 4 * 14 + 10, "X: escolher/alterar   O: salvar e sair");
+        c = menu("SEJA TREINADOR", it, 12, sel, 46 + 4 * 14 + 10, "X: escolher/alterar   O: salvar e sair");
         menu_extra = NULL;
-        if (c < 0) c = 6;
+        if (c < 0) c = 11;
         sel = c;
-        if (c == 0) { S.coach_form = (S.coach_form + 1) % 4; save_game(); continue; }
-        if (c == 1) { S.coach_tac = (S.coach_tac + 1) % 3; save_game(); continue; }
-        if (c == 2) { if (S.coach_tp > 0 && S.coach_bonus < 12) { S.coach_tp--; S.coach_bonus++; save_game(); } continue; }
-        if (c == 3) { coach_market(); continue; }
-        if (c == 5) { table_screen(L, me, "SEJA TREINADOR"); continue; }
-        if (c == 6) { save_game(); return; }
-        sim_match((float)coach_str(), (float)TM[L->id[opp]].str + dadj(),
-                  FA[S.coach_form] * TA_[S.coach_tac], FD[S.coach_form] * TD_[S.coach_tac], &mg, &og);
-        report_screen(S.coach_team, L->id[opp], mg, og);
-        S.coach_money += 6 + ((mg > og) ? 4 : ((mg == og) ? 1 : 0));
-        for (k = 0; k < 4; k++) {
-            if (k == mk) {
-                if (a == me) { ga[k] = mg; gb[k] = og; } else { gb[k] = mg; ga[k] = og; }
-            } else {
-                sim_match((float)TM[L->id[L->fa[L->round][k]]].str, (float)TM[L->id[L->fb[L->round][k]]].str, 1, 1, &ga[k], &gb[k]);
+        if (c == 0) { S.coach_form = (S.coach_form + 1) % 4; save_game(); }
+        else if (c == 1) { S.coach_tac = (S.coach_tac + 1) % 3; save_game(); }
+        else if (c == 2) { if (S.coach_tp > 0 && S.coach_bonus < 12) { S.coach_tp--; S.coach_bonus++; save_game(); } }
+        else if (c == 3) coach_squad();
+        else if (c == 4) coach_market();
+        else if (c == 5) coach_finance();
+        else if (c == 6 || c == 7) {
+            if (coach_round(c == 7)) {
+                if (L->round >= L->nr) { if (coach_season_end()) return; }
+                save_game();
             }
-        }
-        for (k = 0; k < 4; k++) l_apply(L, L->fa[L->round][k], L->fb[L->round][k], ga[k], gb[k]);
-        results_screen(L, ga, gb);
-        L->round++;
-        if (S.coach_tp < 5) S.coach_tp++;
-        gen_market();
-        save_game();
+        } else if (c == 8) calendar_screen(S.cday, 1);
+        else if (c == 9) {
+            int q;
+            for (q = 0; q < 15; q++) coach_day_pass();
+            cmsg("Tempo avancado!", "Jogadores descansaram.");
+            save_game();
+        } else if (c == 10) table_screen(L, me, "SEJA TREINADOR");
+        else { save_game(); return; }
     }
-    l_order(L, o);
-    {
-        char l1[64], l2[64];
-        snprintf(l1, sizeof l1, "CAMPEAO: %s", TM[L->id[o[0]]].name);
-        snprintf(l2, sizeof l2, "%s", (o[0] == me) ? "TREINADOR DO ANO! PARABENS!" : "Temporada encerrada.");
-        end_screen("SEJA TREINADOR", l1, l2, "");
-        table_screen(L, me, "SEJA TREINADOR");
-    }
-    S.coach_on = 0;
-    save_game();
 }
 static void mode_coach(void) {
-    static const char *it[3] = {"Continuar temporada", "Nova temporada", "Voltar"};
+    static const char *it[3] = {"Continuar carreira", "Nova carreira", "Voltar"};
     for (;;) {
         int c = menu("SEJA TREINADOR", it, 3, 0, 60, NULL);
         if (c < 0 || c == 2) return;
         if (c == 0) {
-            if (!S.coach_on) { end_screen("SEJA TREINADOR", "Nenhuma temporada salva", "Comece uma nova temporada", ""); continue; }
+            if (!S.coach_on) { cmsg("Nenhuma carreira salva", "Comece uma nova carreira"); continue; }
         } else {
             int t = pick_team("SEJA TREINADOR - SEU CLUBE", -1);
-            if (t < 0) continue;
-            if (S.coach_on && !confirm("SUBSTITUIR TEMPORADA SALVA?")) continue;
+            if (t < 0 || t >= MAXT) continue;
+            if (S.coach_on && !confirm("SUBSTITUIR CARREIRA SALVA?")) continue;
             S.coach_on = 1; S.coach_team = t; S.coach_form = 0; S.coach_tac = 1;
-            S.coach_tp = 2; S.coach_bonus = 0; S.coach_money = 40;
-            memset(S.coach_sq, 0, sizeof S.coach_sq);
-            gen_market();
-            league_init(&S.coach_lg, 8, t, 0);
+            S.coach_bonus = 0; S.coach_money = 60; S.coach_board = 60;
+            S.coach_season = 1; S.coach_titles = 0; S.coach_stad = 0; S.cday = 1;
+            memset(S.energy, 100, sizeof S.energy);
+            memset(S.starter, 0, sizeof S.starter);
+            coach_auto_lineup();
+            coach_new_season();
             save_game();
         }
         coach_run();
@@ -1404,7 +1692,7 @@ static int edit_name(char *name, int maxlen, const char *title) {
 }
 
 /* ---------- helpers do modo estrela ---------- */
-enum { D_GYM = 1, D_TRAIN = 2, D_PELADA = 4, D_NEWS = 8, D_INT = 16, D_POST = 32, D_POST2 = 64, D_HATE = 128, D_FOOD = 256, D_CHAT = 512 };
+enum { D_PHYS = 16384, D_GYM = 1, D_TRAIN = 2, D_PELADA = 4, D_NEWS = 8, D_INT = 16, D_POST = 32, D_POST2 = 64, D_HATE = 128, D_FOOD = 256, D_CHAT = 512 };
 static const char *CARN[4] = {"Nenhum", "Popular", "Esportivo", "Luxo"};
 static const char *HNAME[6] = {"Cama", "Sofa", "TV", "Geladeira", "Mesa", "Estante trofeus"};
 static const int HPRICE[6] = {15, 25, 40, 35, 20, 30};
@@ -1419,25 +1707,136 @@ static int pay(int mil) {
     S.star_money -= mil;
     return 1;
 }
+static const char *ATN[6] = {"Chute", "Passe", "Drible", "Velocidade", "Defesa", "Fisico"};
+static const char *SPNN[4] = {"Marca Esportiva", "Refrigerante", "Banco", "Cia Aerea"};
+static const int SPNF[4] = {15, 30, 50, 70};
+static const int SPNI[4] = {8, 15, 25, 40};
+static int sponsor_income(void) { int k, s = 0; for (k = 0; k < 4; k++) if (S.spons & (1 << k)) s += SPNI[k]; return s; }
+
+static void recalc_ovr(void) {
+    int i, s = 0;
+    for (i = 0; i < 6; i++) { if (S.at[i] > 99) S.at[i] = 99; if (S.at[i] < 30) S.at[i] = 30; s += S.at[i]; }
+    S.star_ovr = s / 6;
+}
+static void star_init_attrs(void) {
+    int i, b = S.star_ovr;
+    for (i = 0; i < 6; i++) S.at[i] = b;
+    if (S.star_pos == 0) { S.at[0] += 6; S.at[2] += 4; S.at[4] -= 8; }
+    else if (S.star_pos == 1) { S.at[1] += 6; S.at[2] += 3; S.at[4] -= 3; }
+    else { S.at[4] += 8; S.at[5] += 4; S.at[0] -= 8; }
+    recalc_ovr();
+}
+static void bump_attr(int a) {
+    int v = S.at[a], ok = 1;
+    if (v >= 90) ok = (rand() % 100 < 20);
+    else if (v >= 80) ok = (rand() % 100 < 50);
+    if (ok && S.at[a] < 99) { S.at[a]++; recalc_ovr(); }
+}
 static void xp_gain(int n) {
     S.star_xp += n;
-    while (S.star_xp >= 3) {
-        S.star_xp -= 3;
-        if (S.star_ovr < 99) S.star_ovr++;
-        msg2("Evolucao!", "Seu overall subiu +1");
+    while (S.star_xp >= 2) {
+        int a;
+        S.star_xp -= 2;
+        a = (S.star_pos == 0) ? ((rand() % 2) ? 0 : 2) : ((S.star_pos == 1) ? ((rand() % 2) ? 1 : 2) : ((rand() % 2) ? 4 : 5));
+        S.at[a]++; recalc_ovr();
+        {
+            char l[48];
+            snprintf(l, sizeof l, "%s +1", ATN[a]);
+            msg2("Evolucao!", l);
+        }
     }
 }
-static void next_day(void) { S.day++; S.done = 0; }
-static void list_screen(const char *title, const char **ln, int n) {
+
+/* liga da temporada: 6 times, ida e volta = 10 partidas */
+static void star_league_reset(void) {
+    league_init(&S.star_lg, 6, S.star_team, 1);
+    S.star_lg.round = (S.star_games < S.star_lg.nr) ? S.star_games : S.star_lg.nr;
+}
+static int star_cur_opp(void) {
+    League *L = &S.star_lg;
+    int me = league_me(L, S.star_team), mk, a, b2;
+    if (L->round >= L->nr || L->id[me] != S.star_team) { star_league_reset(); me = league_me(L, S.star_team); }
+    mk = find_my_fixture(L, me);
+    a = L->fa[L->round][mk]; b2 = L->fb[L->round][mk];
+    return L->id[(a == me) ? b2 : a];
+}
+static void star_apply_round(int mg, int og) {
+    League *L = &S.star_lg;
+    int me = league_me(L, S.star_team), mk, a, k, ga[8], gb[8];
+    if (L->round >= L->nr || L->id[me] != S.star_team) { star_league_reset(); me = league_me(L, S.star_team); }
+    mk = find_my_fixture(L, me);
+    a = L->fa[L->round][mk];
+    for (k = 0; k < L->n / 2; k++) {
+        if (k == mk) {
+            if (a == me) { ga[k] = mg; gb[k] = og; } else { gb[k] = mg; ga[k] = og; }
+        } else {
+            sim_match((float)TM[L->id[L->fa[L->round][k]]].str, (float)TM[L->id[L->fb[L->round][k]]].str, 1, 1, &ga[k], &gb[k]);
+        }
+    }
+    for (k = 0; k < L->n / 2; k++) l_apply(L, L->fa[L->round][k], L->fb[L->round][k], ga[k], gb[k]);
+    L->round++;
+}
+
+/* eventos do calendario acumulados durante a passagem dos dias */
+static char evb[12][72];
+static int evn = 0;
+static void ev_add(const char *s) { if (evn < 12) { snprintf(evb[evn], 72, "%s", s); evn++; } }
+static void ev_show(void) {
+    const char *ln[12];
     int i;
-    for (;;) {
-        frame();
-        if (PRESSED(PSP_CTRL_CROSS) || PRESSED(PSP_CTRL_CIRCLE)) break;
-        bg(title);
-        for (i = 0; i < n && i < 16; i++) tx(24, 36 + i * 14, C_WHITE, "%s", ln[i]);
-        tx(8, SH - 12, RGB(170, 200, 170), "X: continuar");
-    }
+    if (evn <= 0) return;
+    for (i = 0; i < evn; i++) ln[i] = evb[i];
+    list_screen("ACONTECEU NESTES DIAS", ln, evn);
+    evn = 0;
 }
+static int star_next_match_day(void) { return (S.star_season - 1) * 360 + 44 + 30 * S.star_games + 1; }
+static void star_season_end(void);
+
+static void star_miss_match(void) {
+    int opp = star_cur_opp(), mg, og;
+    char l[72];
+    sim_match((float)TM[S.star_team].str, (float)TM[opp].str + dadj(), 1, 1, &mg, &og);
+    star_apply_round(mg, og);
+    S.star_games++; S.star_rate += 50;
+    addmoral(-4);
+    snprintf(l, sizeof l, "Partida perdida: voce nao jogou vs %s", TM[opp].name);
+    ev_add(l);
+}
+static void next_day(void) {
+    int doy, mo, dom, k;
+    char buf[72];
+    S.day++; S.done = 0;
+    if (S.injury > 0) S.injury--;
+    doy = doy_of(S.day); mo = doy / 30; dom = doy % 30 + 1;
+    if (dom == 1) {
+        int inc = sponsor_income();
+        S.star_money += inc - 10;
+        S.mcnt[0] = S.mcnt[1] = 0;
+        snprintf(buf, sizeof buf, "Novo mes (%s): patrocinios +%d, despesas -10 mil", MESN[mo], inc);
+        ev_add(buf);
+        if (S.star_money < 0) { addmoral(-3); ev_add("Saldo negativo! Moral -3"); }
+    }
+    for (k = 0; k < 5; k++) if (HOL[k].m == mo && HOL[k].d == dom) {
+        if (k == 0) { addmoral(3); ev_add("Ano Novo! Moral +3"); }
+        else if (k == 1) {
+            if (S.pstate >= 1) { addrel(4, 10); addmoral(3); ev_add("Dia dos Namorados! Relacao +10"); }
+            else { addmoral(-1); ev_add("Dia dos Namorados... sem par. Moral -1"); }
+        } else if (k == 2) ev_add("Dia do Trabalho: academia lotada hoje");
+        else if (k == 3) { addfame(1); ev_add("Independencia: homenagem aos craques. Fama +1"); }
+        else { addrel(0, 5); addmoral(5); ev_add("Natal com a familia! Moral +5"); }
+    }
+    if (S.bday == doy) { addfame(1); addmoral(5); ev_add("Seu aniversario! Fama +1  Moral +5"); }
+    if (S.wc_pending && S.day > S.wc_deadline) {
+        S.wc_pending = 0; S.ticket = 0; addmoral(-10);
+        ev_add("Voce perdeu o embarque da Copa! Moral -10");
+    }
+    if (S.star_started && S.star_games < 10 && S.day > star_next_match_day()) star_miss_match();
+}
+static void after_time(void) {
+    ev_show();
+    if (S.star_started && S.star_games >= 10) star_season_end();
+}
+static void advance_days(int n) { int i; for (i = 0; i < n; i++) next_day(); }
 
 /* ---------- editor de visual (criador, barbearia, loja) ---------- */
 static void look_val(int f, int v, char *o) {
@@ -1515,7 +1914,7 @@ static void gen_star_offers(void) {
 }
 static void star_market_extra(void) {
     tx(20, 32, C_GOLD, "Clube atual: %s (Sal %d mil)", TM[S.star_team].name, salary_of(S.star_team));
-    tx(20, 44, C_WHITE, "Overall %d   Patrimonio %d mil   %s", S.star_ovr, S.star_money, S.star_moved ? "Janela fechada" : "Janela aberta");
+    tx(20, 44, C_WHITE, "Overall %d   Patrimonio %d mil   %s", S.star_ovr, S.star_money, (window_open(S.day) && !S.star_moved) ? "Janela aberta" : "Janela fechada");
 }
 static void star_market(void) {
     char b[7][64];
@@ -1536,12 +1935,14 @@ static void star_market(void) {
         sel = c;
         id = S.star_off[c];
         if (id < 0) continue;
+        if (!window_open(S.day)) { end_screen("MERCADO", "Janela de transferencias fechada", "Abre em Janeiro e Julho.", ""); continue; }
         if (S.star_moved) { end_screen("MERCADO", "Voce ja trocou de clube", "nesta temporada.", ""); continue; }
         {
             char q[64], l3[64];
             snprintf(q, sizeof q, "IR PARA O %s?", TM[id].name);
             if (!confirm(q)) continue;
             S.star_team = id; S.star_moved = 1; S.star_money += TM[id].str * 3;
+            star_league_reset();
             snprintf(l3, sizeof l3, "Luvas recebidas: %d mil", TM[id].str * 3);
             gen_star_offers();
             save_game();
@@ -1555,7 +1956,7 @@ static int star_s0(int club) {
     if (v > 105) v = 105;
     return v;
 }
-static int awards_total(void) { int i, n = 0; for (i = 0; i < 8; i++) n += S.aw[i]; return n; }
+static int awards_total(void) { int i, n = 0; for (i = 0; i < 10; i++) n += S.aw[i]; return n; }
 static int house_req(int i) {
     int k;
     switch (i) {
@@ -1570,13 +1971,13 @@ static int house_req(int i) {
 static int all_placed(void) { int i; for (i = 0; i < 6; i++) if (S.house[i] != 2) return 0; return 1; }
 
 static void trophies_screen(void) {
-    static char b[8][64];
-    const char *ln[8];
-    static const char *AN[8] = {"Melhor jogador da partida", "Artilheiro", "Lider de assistencias", "Melhor jogador da liga",
-                                "Melhor jogador do ano", "Melhor jogador da America", "Bola de Ouro (so na Europa)", "Copas do Mundo"};
+    static char b[9][64];
+    const char *ln[9];
+    static const char *AN[9] = {"Melhor jogador da partida", "Artilheiro", "Lider de assistencias", "Melhor jogador da liga",
+                                "Melhor jogador do ano", "Melhor jogador da America", "Bola de Ouro (so na Europa)", "Copas do Mundo", "Titulos de liga"};
     int i;
-    for (i = 0; i < 8; i++) { snprintf(b[i], 64, "%-28s x %d", AN[i], S.aw[i]); ln[i] = b[i]; }
-    list_screen("SALA DE TROFEUS", ln, 8);
+    for (i = 0; i < 9; i++) { snprintf(b[i], 64, "%-28s x %d", AN[i], S.aw[i]); ln[i] = b[i]; }
+    list_screen("SALA DE TROFEUS", ln, 9);
 }
 static void missions_screen(void) {
     static char b[7][72];
@@ -1642,7 +2043,7 @@ static void star_status(void) {
         tx(20, 126, C_WHITE, "Salario: %d mil/jogo", salary_of(S.star_team));
         tx(20, 144, C_WHITE, "Temp %d: %dj %dg %da", S.star_season, S.star_games, S.star_goals, S.star_assists);
         tx(20, 158, C_WHITE, "Carreira: %d gols, %d assist.", S.star_tgoals + S.star_goals, S.star_tassists + S.star_assists);
-        tx(20, 172, C_WHITE, "Treino: %d/3   Dia %d", S.star_xp, S.day);
+        { char dt[24]; date_str(S.day, dt); tx(20, 172, C_WHITE, "Data: %s", dt); }
         tx(20, 186, C_WHITE, "Carro: %s   Chuteira nv %d", CARN[S.car], S.boots_lv);
         tx(20, 204, C_WHITE, "Premios: %d   Copas: %d", awards_total(), S.aw[7]);
         tx(8, SH - 12, RGB(170, 200, 170), "X: voltar");
@@ -1667,61 +2068,41 @@ static void star_awards(int avg) {
     list_screen("PREMIOS DA TEMPORADA", ln, n);
 }
 
-static void star_season_end(void) {
-    int g = (S.star_games > 0) ? S.star_games : 1, avg = S.star_rate / g, inc, best = -1, i;
-    char a[64], b[64], c[64];
-    inc = (avg >= 75) ? 2 : ((avg >= 62) ? 1 : 0);
-    if (S.star_age >= 31) inc = (inc > 0) ? inc - 1 : -1;
-    S.star_ovr += inc;
-    if (S.star_ovr > 99) S.star_ovr = 99;
-    if (S.star_ovr < 40) S.star_ovr = 40;
-    snprintf(a, sizeof a, "FIM DA TEMPORADA %d", S.star_season);
-    snprintf(b, sizeof b, "Gols %d  Assist. %d  Nota media %d.%d", S.star_goals, S.star_assists, avg / 10, avg % 10);
-    snprintf(c, sizeof c, "Overall %s%d  ->  %d", (inc >= 0) ? "+" : "", inc, S.star_ovr);
-    end_screen("TORNE UMA ESTRELA", a, b, c);
-    star_awards(avg);
-    S.star_tgoals += S.star_goals; S.star_tassists += S.star_assists;
-    if (S.star_season % 4 == 0) {
-        int selk = MAXT + S.star_nat;
-        if (S.star_ovr >= TM[selk].str - 6 || S.fame >= 60) {
-            S.wc_pending = 1; S.ticket = 0;
-            end_screen("COPA DO MUNDO", "CONVOCADO PARA A COPA!", "Compre a passagem na Agencia de Viagem", "e embarque no Aeroporto.");
-        } else {
-            addmoral(-6);
-            end_screen("COPA DO MUNDO", "Voce nao foi convocado.", "Continue evoluindo!", "");
-        }
+static void star_league_title(void) {
+    League *L = &S.star_lg;
+    int o[16], me = league_me(L, S.star_team);
+    char l[64];
+    l_order(L, o);
+    if (o[0] == me) {
+        S.aw[8]++; addfame(8); addmoral(10);
+        snprintf(l, sizeof l, "%s e campeao da liga!", TM[S.star_team].name);
+        end_screen("TITULO DA LIGA", l, "Fama +8   Moral +10", "");
     }
-    for (i = 0; i < MAXT; i++) {
-        if (i != S.star_team && TM[i].str > TM[S.star_team].str && TM[i].str <= S.star_ovr + 8)
-            if (best < 0 || TM[i].str < TM[best].str) best = i;
-    }
-    if (best >= 0) {
-        static const char *it[2] = {"Aceitar proposta", "Continuar no clube atual"};
-        snprintf(a, sizeof a, "PROPOSTA: %s", TM[best].name);
-        if (menu(a, it, 2, 0, 60, "X: escolher") == 0) { S.star_team = best; S.star_money += TM[best].str * 3; }
-    }
-    S.star_season++; S.star_age++;
-    S.star_games = S.star_goals = S.star_assists = S.star_rate = 0;
-    S.star_moved = 0;
-    gen_star_offers();
-    if (S.star_age >= 38) {
-        snprintf(a, sizeof a, "%s se aposentou!", S.star_name);
-        snprintf(b, sizeof b, "Gols na carreira: %d", S.star_tgoals);
-        end_screen("FIM DE CARREIRA", a, b, "Obrigado por jogar!");
-        S.star_started = 0;
-    }
-    save_game();
+    table_screen(L, me, "TABELA FINAL DA LIGA");
 }
 
 static void star_play(void) {
-    int opp, s0, tries = 0;
+    int opp, s0, nm = star_next_match_day(), dd;
     MRes R;
-    do { opp = rand() % MAXT; tries++; }
-    while ((opp == S.star_team || abs(TM[opp].str - TM[S.star_team].str) > 14) && tries < 60);
-    if (opp == S.star_team) opp = (opp + 1) % MAXT;
+    if (S.injury > 0) {
+        char l[48];
+        snprintf(l, sizeof l, "Recuperacao: %d dias", S.injury);
+        msg2("Voce esta lesionado!", l);
+        return;
+    }
+    dd = nm - S.day;
+    if (dd > 0) {
+        char l[64], dt[24];
+        date_str(nm, dt);
+        snprintf(l, sizeof l, "Proximo jogo: %s (em %d dias)", dt, dd);
+        msg2("Hoje nao tem jogo.", l);
+        return;
+    }
+    opp = star_cur_opp();
     s0 = star_s0(S.star_team);
     R = play_match(S.star_team, opp, 90, 1, POSI[S.star_pos], s0);
     if (R.quit) return;
+    star_apply_round(R.g0, R.g1);
     {
         int win = R.g0 > R.g1, dr = (R.g0 == R.g1), rate, mvp, dm;
         char a[64], b[64], c[64];
@@ -1741,10 +2122,112 @@ static void star_play(void) {
         snprintf(b, sizeof b, "Seus gols: %d   Assistencias: %d", R.sg, R.sa);
         snprintf(c, sizeof c, "Nota: %d.%d%s", rate / 10, rate % 10, mvp ? "  MELHOR EM CAMPO!" : "");
         end_screen("TORNE UMA ESTRELA", a, b, c);
+        if (rand() % 100 < 7 - ((S.at[5] > 70) ? 2 : 0)) {
+            char l[48];
+            S.injury = 3 + rand() % 7;
+            snprintf(l, sizeof l, "Fora por %d dias. Use a fisioterapia.", S.injury);
+            msg2("LESAO NA PARTIDA!", l);
+        }
     }
     next_day();
     gen_star_offers();
-    if (S.star_games >= 10) star_season_end();
+    after_time();
+    save_game();
+}
+
+static void attr_extra(void) {
+    char dt[24];
+    date_str(S.day, dt);
+    tx(20, 32, C_GOLD, "Overall %d   Data: %s", S.star_ovr, dt);
+}
+static void attr_screen(void) {
+    int i;
+    for (;;) {
+        frame();
+        if (PRESSED(PSP_CTRL_CROSS) || PRESSED(PSP_CTRL_CIRCLE)) break;
+        bg("ATRIBUTOS");
+        attr_extra();
+        for (i = 0; i < 6; i++) {
+            int y = 52 + i * 22;
+            tx(30, y, C_WHITE, "%-11s", ATN[i]);
+            rect(140, y, 202, 10, C_DARK);
+            rect(142, y + 2, S.at[i] * 2, 6, (S.at[i] >= 80) ? RGB(250, 205, 50) : RGB(90, 170, 100));
+            tx(352, y, C_GOLD, "%d", S.at[i]);
+        }
+        tx(30, 190, C_WHITE, "Lesao: %s", (S.injury > 0) ? "SIM" : "nao");
+        if (S.injury > 0) tx(150, 190, RGB(255, 120, 120), "%d dias", S.injury);
+        {
+            int k, n = 0;
+            for (k = 0; k < 4; k++) if (S.spons & (1 << k)) n++;
+            tx(30, 204, C_WHITE, "Patrocinios: %d  (+%d mil/mes)", n, sponsor_income());
+        }
+        tx(30, 218, C_WHITE, "Treino do mes: %d/8   Peladas: %d/4", S.mcnt[0], S.mcnt[1]);
+        tx(8, SH - 12, RGB(170, 200, 170), "X: voltar");
+    }
+}
+static void app_spons(void) {
+    static char b[5][72];
+    const char *it[5];
+    int k, c;
+    for (k = 0; k < 5; k++) it[k] = b[k];
+    for (;;) {
+        for (k = 0; k < 4; k++)
+            snprintf(b[k], 72, "%-16s %-5s +%d/mes (fama %d)", SPNN[k], (S.spons & (1 << k)) ? "[ok]" : "", SPNI[k], SPNF[k]);
+        snprintf(b[4], 72, "Voltar");
+        c = menu("PATROCINIOS", it, 5, 0, 56, "X: assinar contrato   O: voltar");
+        if (c < 0 || c == 4) return;
+        if (S.spons & (1 << c)) { msg2("Contrato ja assinado.", ""); continue; }
+        if (S.fame < SPNF[c]) { msg2("Fama insuficiente.", "Continue evoluindo."); continue; }
+        S.spons |= (1 << c); addfame(1);
+        msg2("Contrato assinado!", "Renda mensal garantida.");
+        save_game();
+    }
+}
+
+static void star_season_end(void) {
+    int g = (S.star_games > 0) ? S.star_games : 1, avg = S.star_rate / g, inc, best = -1, i;
+    char a[64], b[64], c[64];
+    inc = (avg >= 75) ? 2 : ((avg >= 62) ? 1 : 0);
+    if (S.star_age >= 31) inc = (inc > 0) ? inc - 1 : -1;
+    { int q; for (q = 0; q < 6; q++) S.at[q] += inc; }
+    recalc_ovr();
+    snprintf(a, sizeof a, "FIM DA TEMPORADA %d", S.star_season);
+    snprintf(b, sizeof b, "Gols %d  Assist. %d  Nota media %d.%d", S.star_goals, S.star_assists, avg / 10, avg % 10);
+    snprintf(c, sizeof c, "Overall %s%d  ->  %d", (inc >= 0) ? "+" : "", inc, S.star_ovr);
+    end_screen("TORNE UMA ESTRELA", a, b, c);
+    star_awards(avg);
+    star_league_title();
+    S.star_tgoals += S.star_goals; S.star_tassists += S.star_assists;
+    if (S.star_season % 4 == 0) {
+        int selk = MAXT + S.star_nat;
+        if (S.star_ovr >= TM[selk].str - 6 || S.fame >= 60) {
+            S.wc_pending = 1; S.ticket = 0; S.wc_deadline = S.day + 25;
+            end_screen("COPA DO MUNDO", "CONVOCADO PARA A COPA!", "Compre a passagem na Agencia de Viagem", "e embarque no Aeroporto.");
+        } else {
+            addmoral(-6);
+            end_screen("COPA DO MUNDO", "Voce nao foi convocado.", "Continue evoluindo!", "");
+        }
+    }
+    for (i = 0; i < MAXT; i++) {
+        if (i != S.star_team && TM[i].str > TM[S.star_team].str && TM[i].str <= S.star_ovr + 8)
+            if (best < 0 || TM[i].str < TM[best].str) best = i;
+    }
+    if (best >= 0) {
+        static const char *it[2] = {"Aceitar proposta", "Continuar no clube atual"};
+        snprintf(a, sizeof a, "PROPOSTA: %s", TM[best].name);
+        if (menu(a, it, 2, 0, 60, "X: escolher") == 0) { S.star_team = best; S.star_money += TM[best].str * 3; }
+    }
+    S.star_season++; S.star_age++;
+    S.star_games = S.star_goals = S.star_assists = S.star_rate = 0;
+    S.star_moved = 0;
+    star_league_reset();
+    gen_star_offers();
+    if (S.star_age >= 38) {
+        snprintf(a, sizeof a, "%s se aposentou!", S.star_name);
+        snprintf(b, sizeof b, "Gols na carreira: %d", S.star_tgoals);
+        end_screen("FIM DE CARREIRA", a, b, "Obrigado por jogar!");
+        S.star_started = 0;
+    }
     save_game();
 }
 
@@ -1799,7 +2282,7 @@ static void star_worldcup(void) {
     }
     S.star_tgoals += gl; S.star_tassists += as;
     S.wc_pending = 0; S.ticket = 0;
-    S.day += 20; S.done = 0;
+    advance_days(20);
 }
 
 /* ---------- celular ---------- */
@@ -1807,7 +2290,7 @@ static void phone_extra(void) {
     u32 k = RGB(30, 30, 40);
     rect(14, 28, 452, 6, k); rect(14, 258, 452, 6, k);
     rect(14, 28, 6, 236, k); rect(460, 28, 6, 236, k);
-    tx(26, 38, RGB(160, 200, 255), "Sinal ||||   Dia %d   Bateria 87%%", S.day);
+    { char dt[24]; date_str(S.day, dt); tx(26, 38, RGB(160, 200, 255), "Sinal ||||  %s  Bateria 87%%", dt); }
 }
 static int followers(void) { return 500 + S.fame * 1800 + (S.star_tgoals + S.star_goals) * 350; }
 static void social_extra(void) {
@@ -1875,7 +2358,7 @@ static void app_chat(int ct) {
         else snprintf(gmsg, sizeof gmsg, "Alex: Nossa casa esta linda!");
         if (ct == 4 && S.pstate == 0) { if (S.fame >= 10) { it[n] = "Responder mensagem"; act[n++] = 4; } }
         else { it[n] = "Conversar"; act[n++] = 1; }
-        if (ct == 1) { it[n] = "Ver propostas de clubes"; act[n++] = 2; }
+        if (ct == 1) { it[n] = "Ver propostas de clubes"; act[n++] = 2; it[n] = "Patrocinios"; act[n++] = 9; }
         if (ct == 3) { it[n] = "Convidar para pelada"; act[n++] = 3; }
         if (ct == 4 && S.pstate >= 1) { it[n] = "Convidar para sair (3 mil)"; act[n++] = 5; }
         if (ct == 4 && S.pstate == 1) { it[n] = "Pedir em namoro"; act[n++] = 6; }
@@ -1895,6 +2378,7 @@ static void app_chat(int ct) {
                 msg2("Boa conversa!", "Relacao melhorou.");
                 break;
             case 2: star_market(); break;
+            case 9: app_spons(); break;
             case 4: S.pstate = 1; S.rel[4] = 15; msg2("Voces comecaram a conversar!", "Veja em Relacionamentos."); break;
             case 5: if (pay(3)) { addrel(4, 8); addmoral(4); msg2("Saida muito boa!", "Relacao +8  Moral +4"); } break;
             case 6:
@@ -2001,14 +2485,14 @@ static void app_car(void) {
     msg2("Corrida concluida!", LOC[c].name);
 }
 static void phone_menu(void) {
-    static const char *it[7] = {"Rede Social", "Conversas", "Carro (app)", "Comida (app)", "Relacionamentos", "Missoes da casa", "Fechar"};
+    static const char *it[8] = {"Rede Social", "Conversas", "Carro (app)", "Comida (app)", "Relacionamentos", "Missoes da casa", "Calendario", "Fechar"};
     int sel = 0;
     for (;;) {
         int c;
         menu_extra = phone_extra;
-        c = menu("CELULAR", it, 7, sel, 66, "X: abrir app   O: fechar");
+        c = menu("CELULAR", it, 8, sel, 66, "X: abrir app   O: fechar");
         menu_extra = NULL;
-        if (c < 0 || c == 6) return;
+        if (c < 0 || c == 7) return;
         sel = c;
         switch (c) {
             case 0: app_social(); break;
@@ -2016,6 +2500,7 @@ static void phone_menu(void) {
             case 2: app_car(); break;
             case 3: app_food(); break;
             case 4: app_rel(); break;
+            case 6: calendar_screen(S.day, 0); break;
             default: missions_screen(); break;
         }
     }
@@ -2023,54 +2508,97 @@ static void phone_menu(void) {
 
 /* ---------- locais ---------- */
 static void loc_home(void) {
-    static const char *it[6] = {"Dormir (proximo dia)", "Montar moveis comprados", "Ver a casa", "Missoes da casa", "Sala de trofeus", "Voltar"};
+    static const char *it[8] = {"Dormir (proximo dia)", "Dormir ate o proximo jogo", "Montar moveis comprados", "Ver a casa", "Missoes da casa", "Sala de trofeus", "Calendario", "Voltar"};
     for (;;) {
-        int c = menu("CASA", it, 6, 0, 56, NULL);
-        if (c < 0 || c == 5) return;
+        int c = menu("CASA", it, 8, 0, 56, NULL);
+        if (c < 0 || c == 7) return;
         if (c == 0) {
             next_day(); addmoral(4);
             if (rand() % 100 < 15) { addrel(0, 4); msg2("A familia ligou!", "Relacao com a familia melhorou."); }
             else msg2("Voce dormiu bem.", "Um novo dia comeca.");
+            after_time();
+            if (!S.star_started) return;
             save_game();
         } else if (c == 1) {
+            int nm = star_next_match_day(), lim = 400;
+            if (S.day >= nm) { msg2("Hoje e dia de jogo!", "Va ao estadio."); continue; }
+            while (S.day < nm && lim-- > 0) { next_day(); addmoral(1); }
+            msg2("Voce dormiu ate o dia do jogo.", "Va ao estadio!");
+            after_time();
+            if (!S.star_started) return;
+            save_game();
+        } else if (c == 2) {
             int i, n = 0;
             for (i = 0; i < 6; i++) if (S.house[i] == 1) { S.house[i] = 2; n++; addfame(1); addmoral(3); }
             if (!n) msg2("Nenhum movel para montar.", "Compre na Loja de Moveis.");
             else msg2("Moveis montados!", "Sua casa esta mais aconchegante.");
             if (all_placed() && !S.home_reward) { S.home_reward = 1; addmoral(10); addfame(5); msg2("CASA TOTALMENTE MOBILIADA!", "Moral e fama aumentaram."); }
             save_game();
-        } else if (c == 2) home_view();
-        else if (c == 3) missions_screen();
-        else trophies_screen();
+        } else if (c == 3) home_view();
+        else if (c == 4) missions_screen();
+        else if (c == 5) trophies_screen();
+        else calendar_screen(S.day, 0);
     }
 }
+static void gym_extra(void) {
+    tx(20, 32, C_GOLD, "Treinos no mes: %d/8   %s", S.mcnt[0], (S.injury > 0) ? "LESIONADO" : "");
+}
 static void loc_gym(void) {
-    static const char *it[4] = {"Treino de forca (2 mil)", "Treino de velocidade (2 mil)", "Treino tecnico (2 mil)", "Voltar"};
+    char b[8][48];
+    const char *it[8];
+    int k;
+    for (k = 0; k < 8; k++) it[k] = b[k];
     for (;;) {
-        int c = menu("ACADEMIA", it, 4, 0, 56, "X: treinar   O: voltar");
-        if (c < 0 || c == 3) return;
+        int c;
+        for (k = 0; k < 6; k++) snprintf(b[k], 48, "Treinar %s (%d) - 2 mil", ATN[k], S.at[k]);
+        snprintf(b[6], 48, "Fisioterapia (5 mil)");
+        snprintf(b[7], 48, "Voltar");
+        menu_extra = gym_extra;
+        c = menu("ACADEMIA", it, 8, 0, 50, "X: treinar   O: voltar");
+        menu_extra = NULL;
+        if (c < 0 || c == 7) return;
+        if (c == 6) {
+            if (S.injury <= 0) { msg2("Voce nao tem lesao.", ""); continue; }
+            if (S.done & D_PHYS) { msg2("Fisioterapia ja feita hoje.", ""); continue; }
+            if (!pay(5)) continue;
+            S.done |= D_PHYS; S.injury -= 2; if (S.injury < 0) S.injury = 0;
+            msg2("Sessao de fisioterapia!", "Recuperacao acelerada.");
+            save_game();
+            continue;
+        }
+        if (S.injury > 0) { msg2("Voce esta lesionado.", "Faca fisioterapia ou descanse."); continue; }
         if (S.done & D_GYM) { msg2("Voce ja treinou hoje.", "Volte amanha."); continue; }
+        if (S.mcnt[0] >= 8) { msg2("Limite mensal de treinos (8).", "Volte no proximo mes."); continue; }
         if (!pay(2)) continue;
-        S.done |= D_GYM; addmoral(1);
-        if (c == 0) {
+        S.done |= D_GYM; S.mcnt[0]++; addmoral(1);
+        bump_attr(c);
+        if (c == 5) {
             S.gym_n++;
             if (S.gym_n % 8 == 0 && S.slook.build < 2) { S.slook.build++; msg2("Seu fisico evoluiu!", "Voce ficou mais forte."); }
         }
-        msg2("Treino concluido!", "Progresso +1");
-        xp_gain(1);
+        msg2("Treino concluido!", ATN[c]);
         save_game();
     }
 }
+static void stadium_extra(void) {
+    char dt[24];
+    int nm = star_next_match_day();
+    date_str(nm, dt);
+    tx(20, 32, C_GOLD, "Proximo jogo: %s (em %d dias)", dt, (nm > S.day) ? nm - S.day : 0);
+}
 static void loc_stadium(void) {
     char b0[48];
-    const char *it[3];
+    const char *it[4];
     for (;;) {
         int c;
-        snprintf(b0, 48, "Jogar proxima partida (%d/10)", S.star_games + 1);
-        it[0] = b0; it[1] = "Treino coletivo (gratis)"; it[2] = "Voltar";
-        c = menu("ESTADIO", it, 3, 0, 56, NULL);
-        if (c < 0 || c == 2) return;
+        snprintf(b0, 48, "Jogar partida (%d/10)", S.star_games + 1);
+        it[0] = b0; it[1] = "Treino coletivo (gratis)"; it[2] = "Ver tabela da liga"; it[3] = "Voltar";
+        menu_extra = stadium_extra;
+        c = menu("ESTADIO", it, 4, 0, 56, NULL);
+        menu_extra = NULL;
+        if (c < 0 || c == 3) return;
         if (c == 0) { star_play(); if (!S.star_started) return; }
+        else if (c == 2) table_screen(&S.star_lg, league_me(&S.star_lg, S.star_team), "TABELA DA LIGA");
         else if (S.done & D_TRAIN) msg2("Voce ja treinou com o time hoje.", "");
         else { S.done |= D_TRAIN; addmoral(1); msg2("Treino coletivo concluido!", "Progresso +1"); xp_gain(1); save_game(); }
     }
@@ -2206,10 +2734,10 @@ static void loc_agency(void) {
             else if (S.ticket) msg2("Voce ja tem a passagem.", "Va ao Aeroporto.");
             else if (pay(5)) { S.ticket = 1; msg2("Passagem comprada!", "Embarque no Aeroporto."); }
         } else if (c == 1) {
-            if (pay(20)) { addmoral(15); S.day += 3; S.done = 0; msg2("Ferias incriveis!", "Moral +15"); }
+            if (pay(20)) { addmoral(15); advance_days(3); msg2("Ferias incriveis!", "Moral +15"); after_time(); }
         } else {
             if (S.pstate < 1) msg2("Voce precisa de um(a) parceiro(a).", "Converse no celular.");
-            else if (pay(30)) { addrel(4, 15); addmoral(10); S.day += 2; S.done = 0; msg2("Viagem romantica!", "Relacao +15  Moral +10"); }
+            else if (pay(30)) { addrel(4, 15); addmoral(10); advance_days(2); msg2("Viagem romantica!", "Relacao +15  Moral +10"); after_time(); }
         }
         save_game();
     }
@@ -2219,12 +2747,14 @@ static void loc_court(void) {
     for (;;) {
         int c = menu("QUADRA LOCAL", it, 2, 0, 56, NULL);
         if (c != 0) return;
+        if (S.injury > 0) { msg2("Voce esta lesionado.", ""); continue; }
         if (S.done & D_PELADA) { msg2("Voce ja jogou pelada hoje.", ""); continue; }
-        S.done |= D_PELADA;
+        if (S.mcnt[1] >= 4) { msg2("Limite mensal de peladas (4).", ""); continue; }
+        S.done |= D_PELADA; S.mcnt[1]++;
         {
             int opp = rand() % MAXT;
             MRes R = play_match(S.star_team, opp, 25, 1, POSI[S.star_pos], star_s0(S.star_team) - 3);
-            if (R.quit) { S.done &= ~D_PELADA; continue; }
+            if (R.quit) { S.done &= ~D_PELADA; S.mcnt[1]--; continue; }
             if (R.g0 > R.g1) { addfame(1); addmoral(3); xp_gain(1); msg2("Vitoria na pelada!", "Fama +1  Moral +3"); }
             else if (R.g0 == R.g1) { addmoral(1); msg2("Empate na pelada.", "Moral +1"); }
             else { addmoral(-1); msg2("Perdeu a pelada...", "Moral -1"); }
@@ -2239,6 +2769,7 @@ static void loc_airport(void) {
     if (!S.wc_pending) { msg2("Nenhum voo disponivel.", "Voce nao foi convocado."); return; }
     if (!S.ticket) { msg2("Voce precisa da passagem.", "Compre na Agencia de Viagem."); return; }
     star_worldcup();
+    after_time();
     save_game();
 }
 static void interact(int i) {
@@ -2337,7 +2868,11 @@ static void world_draw(void) {
     /* HUD */
     rect(0, 0, SW, 20, RGB(0, 20, 8));
     rect(0, 20, SW, 2, C_GOLD);
-    tx(6, 6, C_WHITE, "Dia %d  $%d mil  Fama %d  Moral %d  Ovr %d", S.day, S.star_money, S.fame, S.moral, S.star_ovr);
+    {
+        char dt[24];
+        date_str(S.day, dt);
+        tx(6, 6, C_WHITE, "%s $%d Fama %d Moral %d Ovr %d%s", dt, S.star_money, S.fame, S.moral, S.star_ovr, (S.injury > 0) ? " LESAO" : "");
+    }
     i = door_near(wpx, wpy);
     rect(0, SH - 18, SW, 18, RGB(0, 20, 8));
     if (i >= 0) tx(8, SH - 13, C_GOLD, "X: entrar - %s", LOC[i].name);
@@ -2366,13 +2901,15 @@ static void star_world(void) {
         if (di >= 0 && PRESSED(PSP_CTRL_CROSS)) { interact(di); continue; }
         if (PRESSED(PSP_CTRL_TRIANGLE)) { phone_menu(); continue; }
         if (PRESSED(PSP_CTRL_START)) {
-            static const char *it[6] = {"Status do jogador", "Trofeus", "Missoes da casa", "Celular", "Salvar e sair", "Voltar"};
-            int c = menu("MENU", it, 6, 0, 50, NULL);
+            static const char *it[8] = {"Status do jogador", "Atributos", "Calendario", "Trofeus", "Missoes da casa", "Celular", "Salvar e sair", "Voltar"};
+            int c = menu("MENU", it, 8, 0, 50, NULL);
             if (c == 0) star_status();
-            else if (c == 1) trophies_screen();
-            else if (c == 2) missions_screen();
-            else if (c == 3) phone_menu();
-            else if (c == 4) { save_game(); return; }
+            else if (c == 1) attr_screen();
+            else if (c == 2) calendar_screen(S.day, 0);
+            else if (c == 3) trophies_screen();
+            else if (c == 4) missions_screen();
+            else if (c == 5) phone_menu();
+            else if (c == 6) { save_game(); return; }
             continue;
         }
         world_draw();
@@ -2408,6 +2945,10 @@ static void mode_star(void) {
             memset(S.aw, 0, sizeof S.aw);
             S.fooded = 0; S.totg = 0; S.ticket = 0; S.wc_pending = 0; S.wc_boost = 0;
             S.gym_n = 0; S.posts = 0; S.last_rate = 0; S.home_reward = 0;
+            S.injury = 0; S.spons = 0; S.wc_deadline = 0; S.bday = rand() % 360;
+            memset(S.mcnt, 0, sizeof S.mcnt);
+            star_init_attrs();
+            star_league_reset();
             wpx = 90; wpy = 214;
             gen_star_offers();
             save_game();
