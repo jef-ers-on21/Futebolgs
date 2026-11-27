@@ -9,6 +9,7 @@
 #include <pspdisplay.h>
 #include <pspctrl.h>
 #include <psppower.h>
+#include <pspaudio.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,7 +27,9 @@ PSP_MAIN_THREAD_ATTR(PSP_THREAD_ATTR_USER);
 #define GSZ 16
 #define NGRP 5
 #define NTEAMS 80
-#define NPL 512
+#define NPL 768
+#define PPT 12
+#define NCV 12
 #define NSEL 16
 #define NP 5
 #define MAGIC 0x46475336u
@@ -113,7 +116,7 @@ static void bg(const char *title) {
 }
 
 /* ---------------- Dados ---------------- */
-typedef struct { char name[16]; int str, c1, c2; } Team;
+typedef struct { char name[16]; int str, c1, c2, c3, c4; } Team;
 typedef struct { char name[16]; unsigned char ovr, pos, nat, team; } Plyr;
 typedef struct { unsigned char skin, hair, hcol, beard, build, boots, band, glove, socks; } Look;
 typedef struct {
@@ -130,7 +133,7 @@ typedef struct {
     int star_pos, star_age, star_ovr, star_team, star_season, star_games;
     int star_goals, star_assists, star_rate, star_xp, star_trained;
     int star_tgoals, star_tassists;
-    int diff, gspd;
+    int diff, gspd, bspd, econ, snd;
     int star_money, star_moved, star_off[6];
     int coach_on, coach_team, coach_form, coach_tac, coach_tp, coach_bonus, coach_money;
     int coach_mk[6][2];
@@ -140,7 +143,7 @@ typedef struct {
     int at[6], injury, spons, bday, wc_deadline, mcnt[4];
     League star_lg;
     Plyr plr[NPL];
-    int conv[NSEL][8];
+    int conv[NSEL][NCV];
     Look slook;
     int star_nat;
     int fame, moral, day, done, house[6], boots_lv, car, rel[5], pstate, aw[10];
@@ -182,16 +185,22 @@ static const char *DIFN[4] = {"Facil", "Normal", "Dificil", "Lendario"};
 static const char *SPDN[3] = {"Lenta", "Normal", "Rapida"};
 static const int DSTR[4] = {-14, 0, 8, 16};
 static const float GSPD[3] = {0.8f, 1.0f, 1.25f};
+static const float BSPD[3] = {0.85f, 1.0f, 1.2f};
+static const int ECOP[3] = {75, 100, 135};
+static const int ECOI[3] = {125, 100, 80};
+static const float DAI[4] = {0.92f, 1.0f, 1.06f, 1.12f};
+static const char *BSPN[3] = {"Lenta", "Normal", "Rapida"};
+static const char *ECON[3] = {"Facil", "Normal", "Dificil"};
 static float dadj(void);
 
 static const char *TACN[3] = {"Defensivo", "Equilibrado", "Ofensivo"};
 static const int DUR[4] = {60, 120, 180, 300};
 
 /* ---------------- Jogadores e selecoes ---------------- */
-static const char *FNM[24] = {"Joao", "Pedro", "Lucas", "Davi", "Rafa", "Bruno", "Diego", "Caio", "Andre", "Igor", "Theo", "Hugo",
-                              "Luan", "Yuri", "Enzo", "Nico", "Joel", "Tito", "Elias", "Ivan", "Otto", "Kaue", "Dudu", "Leo"};
-static const char *LNM[24] = {"Silva", "Souza", "Costa", "Lima", "Rocha", "Alves", "Dias", "Moura", "Pinto", "Reis", "Gomes", "Nunes",
-                              "Cruz", "Melo", "Lopes", "Vieira", "Ramos", "Pires", "Neves", "Brito", "Cunha", "Teles", "Maia", "Prado"};
+static const char *FNM[32] = {"Joao", "Pedro", "Lucas", "Davi", "Rafa", "Bruno", "Diego", "Caio", "Andre", "Igor", "Theo", "Hugo",
+                              "Luan", "Yuri", "Enzo", "Nico", "Joel", "Tito", "Elias", "Ivan", "Otto", "Kaue", "Dudu", "Leo", "Mario", "Paulo", "Rui", "Sergio", "Tomas", "Vitor", "Gael", "Beto"};
+static const char *LNM[32] = {"Silva", "Souza", "Costa", "Lima", "Rocha", "Alves", "Dias", "Moura", "Pinto", "Reis", "Gomes", "Nunes",
+                              "Cruz", "Melo", "Lopes", "Vieira", "Ramos", "Pires", "Neves", "Brito", "Cunha", "Teles", "Maia", "Prado", "Torres", "Campos", "Leite", "Barros", "Farias", "Ribeiro", "Santos", "Duarte"};
 static const char *SELN[NSEL] = {"Brasil", "Argentina", "Franca", "Alemanha", "Espanha", "Italia", "Inglaterra", "Portugal",
                                  "Holanda", "Uruguai", "Croacia", "Mexico", "Japao", "Coreia Sul", "Nigeria", "EUA"};
 static const int SELC[NSEL][2] = {{2, 3}, {8, 4}, {1, 4}, {4, 5}, {0, 2}, {1, 4}, {4, 0}, {0, 3},
@@ -199,7 +208,7 @@ static const int SELC[NSEL][2] = {{2, 3}, {8, 4}, {1, 4}, {4, 5}, {0, 2}, {1, 4}
 static const int NATB[NSEL] = {3, 2, 2, 3, 1, 1, 1, 0, 0, 0, -1, -1, -1, -2, -2, -1};
 static const char *POSA[4] = {"ATA", "MEI", "ZAG", "GOL"};
 
-static void pname(int idx, char *out) { snprintf(out, 24, "%s %s", FNM[idx % 24], LNM[(idx / 24) % 24]); }
+static void pname(int idx, char *out) { snprintf(out, 24, "%s %s", FNM[idx % 32], LNM[(idx / 32) % 32]); }
 
 static void recalc_team(int t) {
     int i, n = 0, s = 0;
@@ -208,40 +217,40 @@ static void recalc_team(int t) {
 }
 static void recalc_sel(int k) {
     int i, s = 0;
-    for (i = 0; i < 8; i++) s += S.plr[S.conv[k][i]].ovr;
-    TM[MAXT + k].str = s / 8;
+    for (i = 0; i < NCV; i++) s += S.plr[S.conv[k][i]].ovr;
+    TM[MAXT + k].str = s / NCV;
 }
 static int roster_of(int team, int *out) {
     int i, n = 0;
-    if (team >= MAXT) { for (i = 0; i < 8; i++) out[n++] = S.conv[team - MAXT][i]; return n; }
-    for (i = 0; i < NPL; i++) if (S.plr[i].team == team && n < 12) out[n++] = i;
+    if (team >= MAXT) { for (i = 0; i < NCV; i++) out[n++] = S.conv[team - MAXT][i]; return n; }
+    for (i = 0; i < NPL; i++) if (S.plr[i].team == team && n < 16) out[n++] = i;
     return n;
 }
 static void gen_players(void) {
     unsigned int rs = 20240611u;
     int t, k, i, j, n, uid, cand[64];
-    for (t = 0; t < MAXT; t++) for (k = 0; k < 8; k++) {
-        Plyr *p = &S.plr[t * 8 + k];
+    for (t = 0; t < MAXT; t++) for (k = 0; k < PPT; k++) {
+        Plyr *p = &S.plr[t * PPT + k];
         char nm[24];
         int v;
-        uid = t * 8 + k;
+        uid = t * PPT + k;
         rs = rs * 1103515245u + 12345u;
         p->team = (unsigned char)t;
-        p->pos = (unsigned char)((k == 0) ? 3 : ((k < 3) ? 2 : ((k < 5) ? 1 : 0)));
+        p->pos = (unsigned char)((k == 0 || k == 11) ? 3 : ((k < 4) ? 2 : ((k < 7) ? 1 : 0)));
         p->nat = (unsigned char)(((uid % 16) * 5 + uid / 16) % 16);
         v = TM[t].str + (int)((rs >> 16) % 17) - 8 + NATB[p->nat];
         if (p->pos == 3) v -= 2;
         if (v < 40) v = 40;
         if (v > 99) v = 99;
         p->ovr = (unsigned char)v;
-        pname((uid * 37) % 576, nm);
+        pname((uid * 37) % 1024, nm);
         strncpy(p->name, nm, 15); p->name[15] = 0;
     }
     for (t = 0; t < MAXT; t++) recalc_team(t);
     for (k = 0; k < NSEL; k++) {
         n = 0;
         for (i = 0; i < NPL; i++) if (S.plr[i].nat == k && n < 64) cand[n++] = i;
-        for (i = 0; i < 8; i++) {
+        for (i = 0; i < NCV; i++) {
             int b = i;
             for (j = i + 1; j < n; j++) if (S.plr[cand[j]].ovr > S.plr[cand[b]].ovr) b = j;
             uid = cand[b]; cand[b] = cand[i]; cand[i] = uid;
@@ -259,11 +268,14 @@ static void reset_teams(void) {
         TM[i].c1 = i % 12;
         TM[i].c2 = (i * 5 + 3) % 12;
         if (TM[i].c2 == TM[i].c1) TM[i].c2 = (TM[i].c2 + 1) % 12;
+        TM[i].c3 = (TM[i].c1 + 6) % 12; TM[i].c4 = (TM[i].c2 + 5) % 12;
+        if (TM[i].c3 == TM[i].c4) TM[i].c4 = (TM[i].c4 + 1) % 12;
     }
     for (i = 0; i < NSEL; i++) {
         strncpy(TM[MAXT + i].name, SELN[i], 15);
         TM[MAXT + i].c1 = SELC[i][0];
         TM[MAXT + i].c2 = SELC[i][1];
+        TM[MAXT + i].c3 = (SELC[i][0] + 6) % 12; TM[MAXT + i].c4 = (SELC[i][1] + 5) % 12;
         TM[MAXT + i].str = 75;
     }
     gen_players();
@@ -291,12 +303,74 @@ static void load_game(void) {
         reset_teams();
         S.magic = MAGIC;
         S.camp_team = -1;
-        S.diff = 1; S.gspd = 1;
+        S.diff = 1; S.gspd = 1; S.bspd = 1; S.econ = 1; S.snd = 1;
     }
     if (S.diff < 0 || S.diff > 3) S.diff = 1;
     if (S.gspd < 0 || S.gspd > 2) S.gspd = 1;
+    if (S.bspd < 0 || S.bspd > 2) S.bspd = 1;
+    if (S.econ < 0 || S.econ > 2) S.econ = 1;
+    if (S.snd < 0 || S.snd > 1) S.snd = 1;
 }
 static float dadj(void) { return (float)DSTR[S.diff]; }
+/* ---------------- Som e transicoes ---------------- */
+static volatile int snd_req = 0;
+static int snd_thread(SceSize args, void *argp) {
+    static const int NF[8][4] = {{0, 0, 0, 0}, {1200, 0, 0, 0}, {900, 1400, 0, 0}, {220, 0, 0, 0}, {2800, 2200, 0, 0}, {523, 659, 784, 1047}, {110, 0, 0, 0}, {180, 140, 0, 0}};
+    static const int NM[8][4] = {{0, 0, 0, 0}, {25, 0, 0, 0}, {40, 60, 0, 0}, {70, 0, 0, 0}, {260, 150, 0, 0}, {110, 110, 110, 220}, {90, 0, 0, 0}, {90, 110, 0, 0}};
+    static const int NN[8] = {0, 1, 2, 1, 2, 4, 1, 2};
+    static short buf[256];
+    int ch = sceAudioChReserve(PSP_AUDIO_NEXT_CHANNEL, 256, PSP_AUDIO_FORMAT_MONO);
+    int kind = 0, note = 0, rem = 0, i;
+    float ph = 0.0f;
+    if (ch < 0) return 0;
+    for (;;) {
+        int r = snd_req;
+        if (r > 0 && r < 8) { snd_req = 0; kind = r; note = 0; rem = NM[kind][0] * 44; }
+        for (i = 0; i < 256; i++) {
+            short v = 0;
+            if (kind > 0 && rem > 0) {
+                ph += (float)NF[kind][note] / 44100.0f;
+                if (ph >= 1.0f) ph -= 1.0f;
+                v = (short)((ph < 0.5f) ? 3000 : -3000);
+                rem--;
+                if (rem <= 0) {
+                    note++;
+                    if (note < NN[kind]) rem = NM[kind][note] * 44; else kind = 0;
+                }
+            }
+            buf[i] = v;
+        }
+        sceAudioOutputBlocking(ch, PSP_AUDIO_VOLUME_MAX, buf);
+    }
+    return 0;
+}
+static void snd(int k) { if (S.snd) snd_req = k; }
+static u32 snapbuf[STRIDE * SH];
+static void fade_out(void) {
+    int s, i, j;
+    for (s = 0; s < 4; s++) {
+        sceDisplayWaitVblankStart();
+        for (j = 0; j < SH; j++) {
+            u32 *p = vram + j * STRIDE;
+            for (i = 0; i < SW; i++) p[i] = 0xFF000000u | ((p[i] >> 1) & 0x7F7F7Fu);
+        }
+    }
+}
+static void fade_in(void) {
+    int s, i, j;
+    for (j = 0; j < SH; j++) memcpy(snapbuf + j * STRIDE, vram + j * STRIDE, SW * 4);
+    for (s = 3; s >= 0; s--) {
+        sceDisplayWaitVblankStart();
+        for (j = 0; j < SH; j++) {
+            u32 *p = vram + j * STRIDE, *q = snapbuf + j * STRIDE;
+            for (i = 0; i < SW; i++) p[i] = 0xFF000000u | ((q[i] >> s) & ((0xFFu >> s) * 0x010101u));
+        }
+    }
+}
+static int ecp(int v) { return (v * ECOP[S.econ] + 99) / 100; }
+static int eci(int v) { return v * ECOI[S.econ] / 100; }
+
+
 
 /* ---------------- Menus genericos ---------------- */
 static void (*menu_extra)(void) = NULL;
@@ -306,9 +380,9 @@ static int menu(const char *title, const char **items, int n, int sel, int y0, c
     if (vis < 1) vis = 1;
     for (;;) {
         frame();
-        if (PRESSED(PSP_CTRL_UP)) sel = (sel + n - 1) % n;
-        if (PRESSED(PSP_CTRL_DOWN)) sel = (sel + 1) % n;
-        if (PRESSED(PSP_CTRL_CROSS)) return sel;
+        if (PRESSED(PSP_CTRL_UP)) { sel = (sel + n - 1) % n; snd(1); }
+        if (PRESSED(PSP_CTRL_DOWN)) { sel = (sel + 1) % n; snd(1); }
+        if (PRESSED(PSP_CTRL_CROSS)) { snd(2); return sel; }
         if (PRESSED(PSP_CTRL_CIRCLE)) return -1;
         bg(title);
         if (menu_extra) menu_extra();
@@ -398,6 +472,17 @@ static const char *SOCKN[3] = {"Curto", "Medio", "Longo"};
 static Look plk[2][NP];
 static char pnm[2][NP][16];
 static int anim = 0;
+static u32 kitc[2][2];
+static int cdist(u32 a, u32 b) {
+    int dr = (int)(a & 255) - (int)(b & 255), dg = (int)((a >> 8) & 255) - (int)((b >> 8) & 255), db = (int)((a >> 16) & 255) - (int)((b >> 16) & 255);
+    return abs(dr) + abs(dg) + abs(db);
+}
+static void kit_pick(int ta, int tb) {
+    kitc[0][0] = PAL[TM[ta].c1]; kitc[0][1] = PAL[TM[ta].c2];
+    kitc[1][0] = PAL[TM[tb].c1]; kitc[1][1] = PAL[TM[tb].c2];
+    if (cdist(kitc[0][0], kitc[1][0]) < 140) { kitc[1][0] = PAL[TM[tb].c3]; kitc[1][1] = PAL[TM[tb].c4]; }
+    if (cdist(kitc[0][0], kitc[1][0]) < 140) { kitc[1][0] = PAL[TM[tb].c2]; kitc[1][1] = PAL[TM[tb].c1]; }
+}
 static int spr_pose = 0;
 
 static void look_of(int uid, Look *L) {
@@ -477,7 +562,7 @@ static void draw_sprite(int cx, int fy, const Look *L, u32 c1, u32 c2, int gk, i
 /* escolhe 5 jogadores do elenco para os 5 lugares do campo */
 static void map_side(int t, int teamid, int starfix) {
     static const int want[NP] = {3, 2, 2, 1, 0};
-    int ids[12], n = roster_of(teamid, ids), used[12], i, k, best, uid;
+    int ids[16], n = roster_of(teamid, ids), used[16], i, k, best, uid;
     memset(used, 0, sizeof used);
     for (i = 0; i < NP; i++) {
         best = -1;
@@ -523,7 +608,7 @@ static int ctrl = 3, ctrlfix = -1;
 static int tactic0 = 1, tactic1 = 1;
 static int tstr[2] = {70, 70};
 static int star_at[6] = {60, 60, 60, 60, 60, 60};
-static float gs = 1.0f;
+static float gs = 1.0f, bsp = 1.0f;
 static int gkhold[2];
 static const float HX[NP] = {0.03f, 0.22f, 0.22f, 0.50f, 0.74f};
 static const float HY[NP] = {0.50f, 0.28f, 0.72f, 0.50f, 0.50f};
@@ -562,7 +647,7 @@ static void kickz(int t, int i, float dx, float dy, float sp, float vz) {
     dx /= d; dy /= d;
     bvx = dx * sp; bvy = dy * sp;
     bvz = vz; bz = (vz > 0) ? 1.0f : 0.0f;
-    pl[t][i].act = 2; pl[t][i].actt = 10;
+    pl[t][i].act = 2; pl[t][i].actt = 10; snd(3);
     bx = pl[t][i].x + dx * 8; by = pl[t][i].y + dy * 8;
     ot = -1; oi = -1;
     pl[t][i].nocatch = 18;
@@ -626,7 +711,7 @@ static void gk_ai(int t) {
 
 static void ai_player(int t, int i, int chaser) {
     Pl *p = &pl[t][i];
-    float spd = 1.1f + tstr[t] * 0.0065f;
+    float spd = (1.1f + tstr[t] * 0.0065f) * ((t == 1) ? DAI[S.diff] : 1.0f);
     float gx = (t == 0) ? FX1 : FX0, gy = 147.0f, dir = (t == 0) ? 1.0f : -1.0f;
     if (i == 0) { gk_ai(t); return; }
     if (p->act == 1) return;
@@ -714,7 +799,7 @@ static void human_control(int i) {
         }
     } else {
         if (PRESSED(PSP_CTRL_CIRCLE) && p->act == 0 && ot != 0) {
-            p->act = 1; p->actt = 22; p->hit = 0; p->slx = fx * 3.4f; p->sly = fy * 3.4f;
+            p->act = 1; p->actt = 22; p->hit = 0; p->slx = fx * 3.4f; p->sly = fy * 3.4f; snd(6);
         } else if (PRESSED(PSP_CTRL_CROSS) && ot == 1 && oi > 0) {
             Pl *o = &pl[1][oi];
             float dx = o->x - p->x, dy = o->y - p->y;
@@ -823,7 +908,7 @@ static int update_play(void) {
         if (by > FY1 - 3) by = FY1 - 3;
     } else {
         float sp, bdist = 1e9f; int bt = -1, bi = -1;
-        bx += bvx * gs; by += bvy * gs;
+        bx += bvx * gs * bsp; by += bvy * gs * bsp;
         bz += bvz * gs; bvz -= 0.14f * gs;
         if (bz <= 0) { bz = 0; bvz = (bvz < -1.2f) ? -bvz * 0.45f : 0; }
         bvx *= 0.986f; bvy *= 0.986f;
@@ -879,7 +964,7 @@ static void draw_slide(int x, int y, const Look *L, u32 c1, u32 c2, int d) {
 static void draw_player(int t, int i, int teamid, int iscontrolled) {
     Pl *p = &pl[t][i];
     int x = (int)p->x, y = (int)p->y + 4;
-    u32 c1 = PAL[TM[teamid].c1], c2 = PAL[TM[teamid].c2];
+    u32 c1 = kitc[t][0], c2 = kitc[t][1];
     int fd = (p->fx > 0.3f) ? 1 : ((p->fx < -0.3f) ? -1 : 0);
     int mv = (fabsf(p->vx) + fabsf(p->vy) > 0.2f);
     int ph = mv ? 1 + ((anim / 6) % 2) : 0;
@@ -928,11 +1013,11 @@ static void draw_match(int ta, int tb, int g0, int g1, int fr, int total, int ph
     /* HUD */
     rect(0, 0, SW, 24, RGB(0, 20, 8));
     rect(0, 24, SW, 2, C_GOLD);
-    rect(6, 6, 10, 10, PAL[TM[ta].c1]);
+    rect(6, 6, 10, 10, kitc[0][0]);
     tx(20, 8, W, "%s", TM[ta].name);
     mn = fr * 90 / total; if (mn > 90) mn = 90;
     txc(8, C_GOLD, "%d x %d  %02d'", g0, g1, mn);
-    rect(SW - 16, 6, 10, 10, PAL[TM[tb].c1]);
+    rect(SW - 16, 6, 10, 10, kitc[1][0]);
     tx(SW - 20 - (int)strlen(TM[tb].name) * 8, 8, W, "%s", TM[tb].name);
     if (phase == 0) {
         rect(60, 100, 360, 86, C_DARK);
@@ -976,13 +1061,13 @@ static int pause_menu(void) {
 /* starfix: -1 = controla o time; >=0 = controla so aquele jogador (modo estrela)
    s0 > 0 : forca do time do jogador (sobrepoe a do time) */
 static MRes play_match(int ta, int tb, int half_secs, int tac, int starfix, int s0) {
-    MRes R; int phase = 0, timer = 100, fr = 0, goalt = 0, sc;
+    MRes R; int phase = 0, timer = 100, fr = 0, goalt = 0, sc, firstf = 1;
     int half = half_secs * 60, total = half * 2;
     memset(&R, 0, sizeof R);
     tstr[0] = (s0 > 0) ? s0 : TM[ta].str; tstr[1] = TM[tb].str + DSTR[S.diff];
     if (tstr[1] < 20) tstr[1] = 20;
     if (tstr[1] > 110) tstr[1] = 110;
-    gs = GSPD[S.gspd];
+    gs = GSPD[S.gspd]; bsp = BSPD[S.bspd];
     tactic0 = tac; tactic1 = 1;
     if (tstr[1] > tstr[0] + 8) tactic1 = 2; else if (tstr[1] < tstr[0] - 12) tactic1 = 0;
     ctrlfix = starfix; ctrl = (starfix >= 0) ? starfix : 3;
@@ -990,12 +1075,14 @@ static MRes play_match(int ta, int tb, int half_secs, int tac, int starfix, int 
     memset(pl, 0, sizeof pl);
     map_side(0, ta, starfix);
     map_side(1, tb, -1);
+    kit_pick(ta, tb);
     kickoff(0);
+    fade_out();
     for (;;) {
         frame();
         if (phase == 1 && PRESSED(PSP_CTRL_START)) { if (pause_menu()) { R.quit = 1; break; } }
         if (phase == 0) {
-            if (--timer <= 0) phase = 1;
+            if (--timer <= 0) { phase = 1; snd(4); }
         } else if (phase == 1) {
             sc = update_play(); fr++;
             if (sc >= 0) {
@@ -1006,9 +1093,9 @@ static MRes play_match(int ta, int tb, int half_secs, int tac, int starfix, int 
                         else if (prevk >= 0 && prevk / 10 == 0 && prevk % 10 == ctrlfix) R.sa++;
                     }
                 } else R.g1++;
-                phase = 2; timer = 130; goalt = sc;
-            } else if (fr >= total) phase = 4;
-            else if (fr == half) phase = 3;
+                phase = 2; timer = 130; goalt = sc; snd(5);
+            } else if (fr >= total) { phase = 4; snd(4); }
+            else if (fr == half) { phase = 3; snd(4); }
         } else if (phase == 2) {
             if (--timer <= 0) {
                 if (fr >= total) phase = 4;
@@ -1021,6 +1108,7 @@ static MRes play_match(int ta, int tb, int half_secs, int tac, int starfix, int 
             if (PRESSED(PSP_CTRL_CROSS)) break;
         }
         draw_match(ta, tb, R.g0, R.g1, fr, total, phase, goalt);
+        if (firstf) { firstf = 0; fade_in(); }
     }
     return R;
 }
@@ -1318,12 +1406,12 @@ static const float TA_[3] = {0.85f, 1.00f, 1.15f};
 static const float TD_[3] = {0.85f, 1.00f, 1.12f};
 
 static void cmsg(const char *a, const char *b) { end_screen("SEJA TREINADOR", a, b, ""); }
-static int price_of(int o) { return (o - 50) * (o - 50) / 20 + 2; }
+static int price_of(int o) { return ecp((o - 50) * (o - 50) / 20 + 2); }
 static int team_count(int t) { int i, n = 0; for (i = 0; i < NPL; i++) if (S.plr[i].team == t) n++; return n; }
 
 static void coach_auto_lineup(void) {
     static const int want[5] = {3, 2, 2, 1, 0};
-    int ids[12], n = roster_of(S.coach_team, ids), used[12], i, k, best;
+    int ids[16], n = roster_of(S.coach_team, ids), used[16], i, k, best;
     memset(used, 0, sizeof used);
     for (i = 0; i < n; i++) S.starter[ids[i]] = 0;
     for (i = 0; i < 5; i++) {
@@ -1336,7 +1424,7 @@ static void coach_auto_lineup(void) {
     }
 }
 static int coach_lineup_str(void) {
-    int ids[12], n = roster_of(S.coach_team, ids), i, cnt = 0, sum = 0, g = 0, d = 0, m = 0, a = 0, v;
+    int ids[16], n = roster_of(S.coach_team, ids), i, cnt = 0, sum = 0, g = 0, d = 0, m = 0, a = 0, v;
     for (i = 0; i < n; i++) {
         int u = ids[i];
         if (!S.starter[u]) continue;
@@ -1355,26 +1443,26 @@ static int coach_lineup_str(void) {
 }
 static int coach_str(void) { return coach_lineup_str() + S.coach_bonus; }
 static int coach_wages(void) {
-    int ids[12], n = roster_of(S.coach_team, ids), i, s = 0;
+    int ids[16], n = roster_of(S.coach_team, ids), i, s = 0;
     for (i = 0; i < n; i++) s += S.plr[ids[i]].ovr;
-    return s / 60;
+    return ecp(s / 60);
 }
 static int coach_round_day(int r) { return (S.coach_season - 1) * 360 + 44 + 30 * r + 1; }
 static void coach_day_pass(void) {
-    int ids[12], n = roster_of(S.coach_team, ids), i;
+    int ids[16], n = roster_of(S.coach_team, ids), i;
     S.cday++;
     for (i = 0; i < n; i++) { int e = S.energy[ids[i]] + 2; S.energy[ids[i]] = (unsigned char)(e > 100 ? 100 : e); }
 }
 
 static void coach_squad_extra(void) {
-    int ids[12], n = roster_of(S.coach_team, ids), i, c = 0;
+    int ids[16], n = roster_of(S.coach_team, ids), i, c = 0;
     for (i = 0; i < n; i++) if (S.starter[ids[i]]) c++;
     tx(20, 32, C_GOLD, "Titulares: %d/5   Forca do time: %d", c, coach_str());
 }
 static void coach_squad(void) {
-    static char b[14][64];
-    const char *it[14];
-    int ids[12], n, k, c, sel = 0;
+    static char b[20][64];
+    const char *it[20];
+    int ids[16], n, k, c, sel = 0;
     for (;;) {
         n = roster_of(S.coach_team, ids);
         for (k = 0; k < n; k++) {
@@ -1413,12 +1501,12 @@ static void coach_gen_market(void) {
     }
 }
 static void coach_extra(void) {
-    tx(20, 32, C_GOLD, "Caixa: %d mi  Elenco: %d/12  Janela: %s", S.coach_money, team_count(S.coach_team), window_open(S.cday) ? "ABERTA" : "fechada");
+    tx(20, 32, C_GOLD, "Caixa: %d mi  Elenco: %d/16  Janela: %s", S.coach_money, team_count(S.coach_team), window_open(S.cday) ? "ABERTA" : "fechada");
 }
 static void coach_sell(void) {
-    static char b[13][64];
-    const char *it[13];
-    int ids[12], n, k, c;
+    static char b[17][64];
+    const char *it[17];
+    int ids[16], n, k, c;
     for (;;) {
         n = roster_of(S.coach_team, ids);
         for (k = 0; k < n; k++) {
@@ -1436,7 +1524,7 @@ static void coach_sell(void) {
             int u = ids[c], d = -1, tries;
             for (tries = 0; tries < 80; tries++) {
                 int t = rand() % MAXT;
-                if (t != S.coach_team && team_count(t) < 12) { d = t; break; }
+                if (t != S.coach_team && team_count(t) < 16) { d = t; break; }
             }
             if (d < 0) { cmsg("Nenhum clube interessado.", ""); continue; }
             S.coach_money += price_of(S.plr[u].ovr) * 70 / 100;
@@ -1470,7 +1558,7 @@ static void coach_market(void) {
             int u = S.coach_mk[c][0], old;
             if (u < 0) continue;
             if (!window_open(S.cday)) { cmsg("Janela de transferencias fechada.", "Abre em Janeiro e Julho."); continue; }
-            if (team_count(S.coach_team) >= 12) { cmsg("Elenco cheio (12 jogadores).", "Venda alguem antes."); continue; }
+            if (team_count(S.coach_team) >= 16) { cmsg("Elenco cheio (16 jogadores).", "Venda alguem antes."); continue; }
             if (S.coach_money < price_of(S.plr[u].ovr)) { cmsg("Caixa insuficiente", ""); continue; }
             old = S.plr[u].team;
             S.coach_money -= price_of(S.plr[u].ovr);
@@ -1496,7 +1584,7 @@ static void coach_finance(void) {
     const char *it[2];
     for (;;) {
         int c;
-        if (S.coach_stad < 3) snprintf(b0, 64, "Ampliar estadio (nivel %d) - %d mi", S.coach_stad + 1, CP[S.coach_stad]);
+        if (S.coach_stad < 3) snprintf(b0, 64, "Ampliar estadio (nivel %d) - %d mi", S.coach_stad + 1, ecp(CP[S.coach_stad]));
         else snprintf(b0, 64, "Estadio no nivel maximo");
         it[0] = b0; it[1] = "Voltar";
         menu_extra = coach_fin_extra;
@@ -1504,8 +1592,8 @@ static void coach_finance(void) {
         menu_extra = NULL;
         if (c != 0) return;
         if (S.coach_stad >= 3) continue;
-        if (S.coach_money < CP[S.coach_stad]) { cmsg("Caixa insuficiente", ""); continue; }
-        S.coach_money -= CP[S.coach_stad]; S.coach_stad++;
+        if (S.coach_money < ecp(CP[S.coach_stad])) { cmsg("Caixa insuficiente", ""); continue; }
+        S.coach_money -= ecp(CP[S.coach_stad]); S.coach_stad++;
         cmsg("Estadio ampliado!", "Mais receita por rodada.");
         save_game();
     }
@@ -1513,7 +1601,7 @@ static void coach_finance(void) {
 
 static void coach_new_season(void) {
     League *L = &S.coach_lg;
-    int ids[12], n, i, rank = 1;
+    int ids[16], n, i, rank = 1;
     char l2[64];
     league_init(L, 8, S.coach_team, 0);
     for (i = 0; i < L->n; i++) if (L->id[i] != S.coach_team && TM[L->id[i]].str > TM[S.coach_team].str) rank++;
@@ -1538,7 +1626,7 @@ static void coach_round_extra(void) {
 }
 static int coach_round(int playit) {
     League *L = &S.coach_lg;
-    int me = league_me(L, S.coach_team), mk = find_my_fixture(L, me), a, b2, opp, mg = 0, og = 0, k, ga[8], gb[8], nd, ids[12], n, sm;
+    int me = league_me(L, S.coach_team), mk = find_my_fixture(L, me), a, b2, opp, mg = 0, og = 0, k, ga[8], gb[8], nd, ids[16], n, sm;
     gL = L; gme = me;
     a = L->fa[L->round][mk]; b2 = L->fb[L->round][mk]; opp = L->id[(a == me) ? b2 : a];
     nd = coach_round_day(L->round);
@@ -1565,7 +1653,7 @@ static int coach_round(int playit) {
     results_screen(L, ga, gb);
     L->round++;
     {
-        int inc = 14 + 4 * S.coach_stad + ((mg > og) ? 5 : ((mg == og) ? 2 : 0)), wag = coach_wages();
+        int inc = eci(14 + 4 * S.coach_stad + ((mg > og) ? 5 : ((mg == og) ? 2 : 0))), wag = coach_wages();
         char l1[64], l2[64];
         S.coach_money += inc - wag;
         S.coach_board += (mg > og) ? 2 : ((mg == og) ? 0 : -2);
@@ -1767,7 +1855,8 @@ static void addfame(int d) { S.fame += d; if (S.fame > 100) S.fame = 100; if (S.
 static void addmoral(int d) { S.moral += d; if (S.moral > 100) S.moral = 100; if (S.moral < 0) S.moral = 0; }
 static void addrel(int i, int d) { S.rel[i] += d; if (S.rel[i] > 100) S.rel[i] = 100; if (S.rel[i] < 0) S.rel[i] = 0; }
 static void msg2(const char *a, const char *b) { end_screen("TORNE UMA ESTRELA", a, b, ""); }
-static int pay(int mil) {
+static int pay(int mil0) {
+    int mil = (mil0 > 0) ? ecp(mil0) : 0;
     if (S.star_money < mil) { msg2("Dinheiro insuficiente", "Jogue partidas para ganhar salario."); return 0; }
     S.star_money -= mil;
     return 1;
@@ -1776,7 +1865,7 @@ static const char *ATN[6] = {"Chute", "Passe", "Drible", "Velocidade", "Defesa",
 static const char *SPNN[4] = {"Marca Esportiva", "Refrigerante", "Banco", "Cia Aerea"};
 static const int SPNF[4] = {15, 30, 50, 70};
 static const int SPNI[4] = {8, 15, 25, 40};
-static int sponsor_income(void) { int k, s = 0; for (k = 0; k < 4; k++) if (S.spons & (1 << k)) s += SPNI[k]; return s; }
+static int sponsor_income(void) { int k, s = 0; for (k = 0; k < 4; k++) if (S.spons & (1 << k)) s += SPNI[k]; return eci(s); }
 
 static void recalc_ovr(void) {
     int i, s = 0;
@@ -1967,7 +2056,7 @@ static int create_star(void) {
     return 1;
 }
 
-static int salary_of(int club) { return TM[club].str * TM[club].str / 200; }
+static int salary_of(int club) { return eci(TM[club].str * TM[club].str / 200); }
 static void gen_star_offers(void) {
     int cand[MAXT], n = 0, i, k;
     for (i = 0; i < MAXT; i++) {
@@ -2516,13 +2605,13 @@ static void app_food(void) {
 }
 
 /* ---------- mundo aberto ---------- */
-#define WW 1920
+#define WW 2880
 #define WH 1152
 #define CW 960
 #define CH 576
 #define NLT 13
-#define NGL (4 * NLT)
-#define NDH 20
+#define NGL (6 * NLT)
+#define NDH 30
 typedef struct { int x, y, w, h; const char *name; u32 col, roof; } Loc;
 static const Loc LT[NLT] = {
     {40, 100, 100, 96, "CASA", RGB(200, 160, 110), RGB(170, 60, 50)},
@@ -2541,15 +2630,15 @@ static const Loc LT[NLT] = {
 };
 static Loc GL[NGL];
 static Loc DH[NDH];
-static const char *CITYN[4] = {"Vila Municipal", "Sao Jorge", "Nova Europa", "Estrela City"};
+static const char *CITYN[6] = {"Vila Municipal", "Sao Jorge", "Nova Europa", "Estrela City", "Capital Mundial", "Ilha Paradise"};
 static int wpx = 90, wpy = 214, wfd = 1, wph = 0, wt = 0;
 static int g_exit_int = 0, g_quit = 0;
 
 static void build_world(void) {
     static const int dxs[5] = {350, 560, 650, 740, 830};
     int c, k;
-    for (c = 0; c < 4; c++) {
-        int ox = (c % 2) * CW, oy = (c / 2) * CH;
+    for (c = 0; c < 6; c++) {
+        int ox = (c % 3) * CW, oy = (c / 3) * CH;
         for (k = 0; k < NLT; k++) { GL[c * NLT + k] = LT[k]; GL[c * NLT + k].x += ox; GL[c * NLT + k].y += oy; }
         for (k = 0; k < 5; k++) {
             Loc *d = &DH[c * 5 + k];
@@ -2560,8 +2649,8 @@ static void build_world(void) {
     }
 }
 static int cur_city(void) {
-    int c = (wpx / CW) + (wpy / CH) * 2;
-    return (c < 0) ? 0 : ((c > 3) ? 3 : c);
+    int c = (wpx / CW) + (wpy / CH) * 3;
+    return (c < 0) ? 0 : ((c > 5) ? 5 : c);
 }
 static void place_at(int city, int type) {
     const Loc *l = &GL[city * NLT + type];
@@ -2885,7 +2974,7 @@ static int do_transfer(int club, int cost, int type) {
 }
 static void airport_act(int a) {
     int cg = S.star_team / GSZ % 4, n = 0, k, c, gid[4];
-    const char *it[5];
+    const char *it[8];
     if (a == 0) {
         if (!S.wc_pending) { msg2("Nenhum voo disponivel.", "Voce nao foi convocado."); return; }
         if (!S.ticket) { msg2("Voce precisa da passagem.", "Compre na Agencia de Viagem."); return; }
@@ -2900,8 +2989,8 @@ static void airport_act(int a) {
         k = pick_team_in("CLUBE DE DESTINO", gid[c], -1);
         if (k >= 0) do_transfer(k, 10, 10);
     } else {
-        int cc = cur_city(), cid[4];
-        for (k = 0; k < 4; k++) if (k != cc) { it[n] = CITYN[k]; cid[n++] = k; }
+        int cc = cur_city(), cid[6];
+        for (k = 0; k < 6; k++) if (k != cc) { it[n] = CITYN[k]; cid[n++] = k; }
         it[n] = "Voltar";
         c = menu("VOAR PARA CIDADE (8 mil)", it, n + 1, 0, 56, NULL);
         if (c < 0 || c == n) return;
@@ -2915,13 +3004,15 @@ static void bus_act(int a) {
         int k = pick_team_in("TIMES PROXIMOS (mesma liga)", S.star_team / GSZ % 4, S.star_team);
         if (k >= 0) do_transfer(k, 1, 11);
     } else {
-        int cc = cur_city(), nb[2], k, c;
-        const char *it[3];
-        nb[0] = cc ^ 1; nb[1] = cc ^ 2;
-        for (k = 0; k < 2; k++) it[k] = CITYN[nb[k]];
-        it[2] = "Voltar";
-        c = menu("ONIBUS - CIDADES VIZINHAS (2 mil)", it, 3, 0, 56, NULL);
-        if (c < 0 || c == 2) return;
+        int cc = cur_city(), nb[4], nn = 0, k, c;
+        const char *it[5];
+        if (cc % 3 < 2) nb[nn++] = cc + 1;
+        if (cc % 3 > 0) nb[nn++] = cc - 1;
+        nb[nn++] = (cc < 3) ? cc + 3 : cc - 3;
+        for (k = 0; k < nn; k++) it[k] = CITYN[nb[k]];
+        it[nn] = "Voltar";
+        c = menu("ONIBUS - CIDADES VIZINHAS (2 mil)", it, nn + 1, 0, 56, NULL);
+        if (c < 0 || c == nn) return;
         if (!pay(2)) return;
         place_at(nb[c], 11); g_exit_int = 1;
         msg2("Viagem de onibus concluida!", CITYN[nb[c]]);
@@ -3078,7 +3169,7 @@ static void interior(int t) {
         }
     }
 }
-static void interact(int i) { interior(i % NLT); }
+static void interact(int i) { fade_out(); interior(i % NLT); }
 
 /* ---------- desenho do mundo ---------- */
 static int blocked(int x, int y) {
@@ -3147,8 +3238,8 @@ static void world_draw(void) {
     for (ty_ = camy / 16; ty_ <= (camy + SH) / 16; ty_++)
         for (tx_ = camx / 16; tx_ <= (camx + SW) / 16; tx_++)
             if (((tx_ * 7 + ty_ * 13) % 5) == 0) rect(tx_ * 16 - camx + 4, ty_ * 16 - camy + 5, 4, 2, RGB(44, 128, 52));
-    for (c = 0; c < 4; c++) {
-        int ox = (c % 2) * CW - camx, oy = (c / 2) * CH - camy;
+    for (c = 0; c < 6; c++) {
+        int ox = (c % 3) * CW - camx, oy = (c / 3) * CH - camy;
         rect(ox, oy + 224, CW, 48, RGB(170, 170, 160));
         rect(ox, oy + 232, CW, 32, RGB(70, 70, 75));
         for (k = 0; k < CW; k += 40) rect(ox + k, oy + 247, 20, 2, RGB(230, 230, 120));
@@ -3239,7 +3330,7 @@ static void mode_star(void) {
             memset(S.mcnt, 0, sizeof S.mcnt);
             star_init_attrs();
             star_league_reset();
-            wpx = ((S.star_team / GSZ) % 2) * CW + 90; wpy = ((S.star_team / GSZ) / 2) * CH + 214;
+            wpx = ((S.star_team / GSZ) % 3) * CW + 90; wpy = ((S.star_team / GSZ) / 3) * CH + 214;
             gen_star_offers();
             save_game();
             star_world();
@@ -3315,39 +3406,39 @@ static void edit_team(int id) {
     int sel = 0, i;
     for (;;) {
         frame();
-        if (PRESSED(PSP_CTRL_UP)) sel = (sel + 3) % 4;
-        if (PRESSED(PSP_CTRL_DOWN)) sel = (sel + 1) % 4;
+        if (PRESSED(PSP_CTRL_UP)) sel = (sel + 5) % 6;
+        if (PRESSED(PSP_CTRL_DOWN)) sel = (sel + 1) % 6;
         if (sel == 1) {
             if (PRESSED(PSP_CTRL_LEFT) && TM[id].str > 30) TM[id].str--;
             if (PRESSED(PSP_CTRL_RIGHT) && TM[id].str < 99) TM[id].str++;
             if (HELD(PSP_CTRL_LTRIGGER) && TM[id].str > 30) TM[id].str--;
             if (HELD(PSP_CTRL_RTRIGGER) && TM[id].str < 99) TM[id].str++;
         }
-        if (sel == 2) {
-            if (PRESSED(PSP_CTRL_LEFT)) TM[id].c1 = (TM[id].c1 + 11) % 12;
-            if (PRESSED(PSP_CTRL_RIGHT)) TM[id].c1 = (TM[id].c1 + 1) % 12;
-        }
-        if (sel == 3) {
-            if (PRESSED(PSP_CTRL_LEFT)) TM[id].c2 = (TM[id].c2 + 11) % 12;
-            if (PRESSED(PSP_CTRL_RIGHT)) TM[id].c2 = (TM[id].c2 + 1) % 12;
+        if (sel >= 2) {
+            int *cp = (sel == 2) ? &TM[id].c1 : ((sel == 3) ? &TM[id].c2 : ((sel == 4) ? &TM[id].c3 : &TM[id].c4));
+            if (PRESSED(PSP_CTRL_LEFT)) *cp = (*cp + 11) % 12;
+            if (PRESSED(PSP_CTRL_RIGHT)) *cp = (*cp + 1) % 12;
         }
         if (PRESSED(PSP_CTRL_CROSS) && sel == 0) edit_name(TM[id].name, 14, "EDITAR NOME DO TIME");
         if (PRESSED(PSP_CTRL_CIRCLE)) { save_game(); return; }
         bg("EDITAR TIME");
-        for (i = 0; i < 4; i++) {
-            int y = 50 + i * 24;
+        for (i = 0; i < 6; i++) {
+            int y = 44 + i * 22;
             u32 col = (i == sel) ? C_GOLD : C_WHITE;
             if (i == sel) rect(30, y - 4, 300, 18, RGB(40, 100, 50));
             if (i == 0) tx(40, y, col, "Nome: %s", TM[id].name);
             if (i == 1) tx(40, y, col, "Forca: < %d >", TM[id].str);
             if (i == 2) tx(40, y, col, "Cor 1: < %s >", PALN[TM[id].c1]);
             if (i == 3) tx(40, y, col, "Cor 2: < %s >", PALN[TM[id].c2]);
+            if (i == 4) tx(40, y, col, "Reserva 1: < %s >", PALN[TM[id].c3]);
+            if (i == 5) tx(40, y, col, "Reserva 2: < %s >", PALN[TM[id].c4]);
         }
-        /* camisa */
-        rect(370, 60, 70, 70, C_DARK);
-        rect(374, 64, 62, 62, PAL[TM[id].c1]);
-        rect(390, 80, 30, 30, PAL[TM[id].c2]);
-        rect(350, 66, 22, 26, PAL[TM[id].c1]); rect(438, 66, 22, 26, PAL[TM[id].c1]);
+        rect(350, 44, 120, 70, C_DARK);
+        draw_sprite(385, 106, &plk[0][3], PAL[TM[id].c1], PAL[TM[id].c2], 0, 0, 0, 2);
+        tx(352, 116, C_WHITE, "Principal");
+        rect(350, 140, 120, 70, C_DARK);
+        draw_sprite(385, 202, &plk[0][3], PAL[TM[id].c3], PAL[TM[id].c4], 0, 0, 0, 2);
+        tx(352, 212, C_WHITE, "Reserva");
         tx(8, SH - 24, RGB(170, 200, 170), "Cima/Baixo: item   Esq/Dir ou L/R: alterar");
         tx(8, SH - 12, RGB(170, 200, 170), "X: editar nome   O: salvar e voltar");
     }
@@ -3356,9 +3447,9 @@ static void plist_line(int uid, char *out, int n) {
     snprintf(out, n, "%-13s %s %2d %-10s", S.plr[uid].name, POSA[S.plr[uid].pos % 4], S.plr[uid].ovr, SELN[S.plr[uid].nat % 16]);
 }
 static int pick_player(const char *title, int team) {
-    static char b[12][56];
-    const char *it[12];
-    int ids[12], n, k, c;
+    static char b[16][56];
+    const char *it[16];
+    int ids[16], n, k, c;
     n = roster_of(team, ids);
     if (n <= 0) return -1;
     for (k = 0; k < n; k++) { plist_line(ids[k], b[k], 56); it[k] = b[k]; }
@@ -3446,12 +3537,12 @@ static void edit_conv(void) {
     for (;;) {
         int uid = pick_player("CONVOCADOS (X: trocar)", MAXT + k);
         if (uid < 0) return;
-        for (slot = 0; slot < 8; slot++) if (S.conv[k][slot] == uid) break;
-        if (slot >= 8) continue;
+        for (slot = 0; slot < NCV; slot++) if (S.conv[k][slot] == uid) break;
+        if (slot >= NCV) continue;
         n = 0;
         for (i = 0; i < NPL && n < 64; i++) if (S.plr[i].nat == k) {
             in = 0;
-            for (j = 0; j < 8; j++) if (S.conv[k][j] == i) in = 1;
+            for (j = 0; j < NCV; j++) if (S.conv[k][j] == i) in = 1;
             if (!in) cand[n++] = i;
         }
         for (i = 0; i < n; i++) for (j = i + 1; j < n; j++)
@@ -3510,21 +3601,27 @@ static void mode_amistoso(void) {
 
 /* ---------------- Opcoes ---------------- */
 static void mode_options(void) {
-    char b[2][48];
-    const char *it[3];
-    int sel = 0, c;
-    it[0] = b[0]; it[1] = b[1]; it[2] = "Voltar";
+    char b[5][56];
+    const char *it[6];
+    int sel = 0, c, k;
+    for (k = 0; k < 5; k++) it[k] = b[k];
+    it[5] = "Voltar";
     for (;;) {
-        snprintf(b[0], 48, "Dificuldade: %s", DIFN[S.diff]);
-        snprintf(b[1], 48, "Velocidade do jogo: %s", SPDN[S.gspd]);
-        c = menu("OPCOES", it, 3, sel, 60, "X: alterar   O: voltar");
-        if (c < 0 || c == 2) { save_game(); return; }
+        snprintf(b[0], 56, "Dificuldade: %s", DIFN[S.diff]);
+        snprintf(b[1], 56, "Velocidade dos jogadores: %s", SPDN[S.gspd]);
+        snprintf(b[2], 56, "Velocidade da bola: %s", BSPN[S.bspd]);
+        snprintf(b[3], 56, "Economia (precos/salarios): %s", ECON[S.econ]);
+        snprintf(b[4], 56, "Efeitos sonoros: %s", S.snd ? "Ligado" : "Desligado");
+        c = menu("OPCOES", it, 6, sel, 60, "X: alterar   O: voltar");
+        if (c < 0 || c == 5) { save_game(); return; }
         sel = c;
         if (c == 0) S.diff = (S.diff + 1) % 4;
-        else S.gspd = (S.gspd + 1) % 3;
+        else if (c == 1) S.gspd = (S.gspd + 1) % 3;
+        else if (c == 2) S.bspd = (S.bspd + 1) % 3;
+        else if (c == 3) S.econ = (S.econ + 1) % 3;
+        else S.snd = !S.snd;
     }
 }
-
 /* ---------------- Copa Mundial (mata-mata) ---------------- */
 static void cup_results(const char *title, int *al, int cnt, int *ga, int *gb, int *pen) {
     int k;
@@ -3598,15 +3695,149 @@ static void run_cup(void) {
 }
 
 /* ---------------- Mais ligas ---------------- */
+/* ---------------- Libertadores e Supercopa ---------------- */
+static int user_match(const char *title, int me, int opp, int tac, int half, int *mg, int *og) {
+    for (;;) {
+        char b0[64];
+        const char *itl[2];
+        int c;
+        snprintf(b0, sizeof b0, "Jogar contra %s (%d)", TM[opp].name, TM[opp].str);
+        itl[0] = b0; itl[1] = "Simular partida";
+        c = menu(title, itl, 2, 0, 60, NULL);
+        if (c < 0) { if (confirm("SAIR DA COMPETICAO?")) return -1; continue; }
+        if (c == 0) {
+            MRes R = play_match(me, opp, half, tac, -1, 0);
+            if (R.quit) continue;
+            *mg = R.g0; *og = R.g1;
+            return 1;
+        }
+        sim_match((float)TM[me].str, (float)TM[opp].str + dadj(), 1, 1, mg, og);
+        report_screen(me, opp, *mg, *og);
+        return 1;
+    }
+}
+/* retorna 1 = campeao, 0 = eliminado, -1 = saiu */
+static int ko_run(int *al, int n, int me_id, int tac, int half, const char **RN) {
+    int rnd = 0;
+    while (n > 1) {
+        int nx[8], ga[8], gb[8], pen[8], k, mk = -1;
+        for (k = 0; k < n / 2; k++) if (al[2 * k] == me_id || al[2 * k + 1] == me_id) mk = k;
+        for (k = 0; k < n / 2; k++) {
+            int a = al[2 * k], b = al[2 * k + 1], x, y;
+            pen[k] = 0;
+            if (k == mk) {
+                int opp = (a == me_id) ? b : a, mg = 0, og = 0;
+                if (user_match(RN[rnd], me_id, opp, tac, half, &mg, &og) < 0) return -1;
+                if (a == me_id) { x = mg; y = og; } else { x = og; y = mg; }
+            } else sim_match((float)TM[a].str, (float)TM[b].str, 1, 1, &x, &y);
+            ga[k] = x; gb[k] = y;
+            if (x == y) { int pa, pb, w = shootout(a, b, &pa, &pb); pen[k] = 1; nx[k] = w ? a : b; }
+            else nx[k] = (x > y) ? a : b;
+        }
+        cup_results(RN[rnd], al, n / 2, ga, gb, pen);
+        if (mk >= 0 && nx[mk] != me_id) return 0;
+        for (k = 0; k < n / 2; k++) al[k] = nx[k];
+        n /= 2; rnd++;
+    }
+    return al[0] == me_id;
+}
+static void run_liberta(void) {
+    static const char *RN[3] = {"QUARTAS DE FINAL", "SEMIFINAL", "GRANDE FINAL"};
+    static const int P[3][2][2] = {{{0, 1}, {2, 3}}, {{0, 2}, {1, 3}}, {{0, 3}, {1, 2}}};
+    static League G[4];
+    int me_id, tac, half, ids[16], n = 0, g, i, j, t, r, m, mgrp = -1, first[4], second[4], al[8], res;
+    me_id = pick_team("LIBERTADORES - SEU TIME", -1);
+    if (me_id < 0) return;
+    if (me_id >= MAXT) { end_screen("LIBERTADORES", "Use um time de clube.", "", ""); return; }
+    tac = pick_tactic(); if (tac < 0) return;
+    half = pick_duration(); if (half < 0) return;
+    for (g = 0; g < 4; g++) {
+        int top[GSZ], k, base = n;
+        for (i = 0; i < GSZ; i++) top[i] = g * GSZ + i;
+        for (i = 0; i < 4; i++) {
+            int b = i;
+            for (j = i + 1; j < GSZ; j++) if (TM[top[j]].str > TM[top[b]].str) b = j;
+            t = top[i]; top[i] = top[b]; top[b] = t;
+            ids[n++] = top[i];
+        }
+        if (me_id / GSZ == g) {
+            int in = 0;
+            for (k = base; k < n; k++) if (ids[k] == me_id) in = 1;
+            if (!in) ids[n - 1] = me_id;
+        }
+    }
+    for (i = 15; i > 0; i--) { j = rand() % (i + 1); t = ids[i]; ids[i] = ids[j]; ids[j] = t; }
+    for (g = 0; g < 4; g++) {
+        memset(&G[g], 0, sizeof G[g]);
+        G[g].n = 4; G[g].nr = 3;
+        for (i = 0; i < 4; i++) { G[g].id[i] = ids[g * 4 + i]; if (G[g].id[i] == me_id) mgrp = g; }
+    }
+    for (r = 0; r < 3; r++) {
+        int pairs[16], ga[8], gb[8], pen[8], idx = 0;
+        char title[48];
+        snprintf(title, sizeof title, "FASE DE GRUPOS - RODADA %d", r + 1);
+        for (g = 0; g < 4; g++) for (m = 0; m < 2; m++) {
+            int pa = P[r][m][0], pb = P[r][m][1], a = G[g].id[pa], b = G[g].id[pb], x, y;
+            if (a == me_id || b == me_id) {
+                int opp = (a == me_id) ? b : a, mg = 0, og = 0;
+                if (user_match(title, me_id, opp, tac, half, &mg, &og) < 0) return;
+                if (a == me_id) { x = mg; y = og; } else { x = og; y = mg; }
+            } else sim_match((float)TM[a].str, (float)TM[b].str, 1, 1, &x, &y);
+            l_apply(&G[g], pa, pb, x, y);
+            pairs[2 * idx] = a; pairs[2 * idx + 1] = b; ga[idx] = x; gb[idx] = y; pen[idx] = 0; idx++;
+        }
+        cup_results(title, pairs, 8, ga, gb, pen);
+    }
+    for (g = 0; g < 4; g++) {
+        int o[16], me = (g == mgrp) ? league_me(&G[g], me_id) : -1;
+        char title[48];
+        snprintf(title, sizeof title, "GRUPO %c - CLASSIFICACAO", 'A' + g);
+        table_screen(&G[g], me, title);
+        l_order(&G[g], o);
+        first[g] = G[g].id[o[0]]; second[g] = G[g].id[o[1]];
+    }
+    al[0] = first[0]; al[1] = second[1]; al[2] = first[1]; al[3] = second[0];
+    al[4] = first[2]; al[5] = second[3]; al[6] = first[3]; al[7] = second[2];
+    {
+        int ok = 0;
+        for (i = 0; i < 8; i++) if (al[i] == me_id) ok = 1;
+        if (!ok) { end_screen("LIBERTADORES", "ELIMINADO NA FASE DE GRUPOS", "Seu time nao passou de fase.", ""); return; }
+    }
+    res = ko_run(al, 8, me_id, tac, half, RN);
+    if (res == 1) end_screen("LIBERTADORES", "CAMPEAO DA LIBERTADORES!", TM[me_id].name, "Voce reinou nas 4 ligas!");
+    else if (res == 0) end_screen("LIBERTADORES", "ELIMINADO!", "Seu time caiu no mata-mata.", "");
+}
+static void run_super(void) {
+    static const char *RN[2] = {"SEMIFINAL", "GRANDE FINAL"};
+    int me_id, tac, half, al[4], g, i, j, t, res;
+    me_id = pick_team("SUPERCOPA - SEU TIME", -1);
+    if (me_id < 0) return;
+    if (me_id >= MAXT) { end_screen("SUPERCOPA", "Use um time de clube.", "", ""); return; }
+    tac = pick_tactic(); if (tac < 0) return;
+    half = pick_duration(); if (half < 0) return;
+    for (g = 0; g < 4; g++) {
+        int best = g * GSZ;
+        for (i = 0; i < GSZ; i++) if (TM[g * GSZ + i].str > TM[best].str) best = g * GSZ + i;
+        al[g] = (me_id / GSZ == g) ? me_id : best;
+    }
+    for (i = 3; i > 0; i--) { j = rand() % (i + 1); t = al[i]; al[i] = al[j]; al[j] = t; }
+    res = ko_run(al, 4, me_id, tac, half, RN);
+    if (res == 1) end_screen("SUPERCOPA", "CAMPEAO DA SUPERCOPA!", TM[me_id].name, "Melhor entre os campeoes!");
+    else if (res == 0) end_screen("SUPERCOPA", "ELIMINADO!", "Nao foi desta vez.", "");
+}
+
 static void mode_more_leagues(void) {
-    static const char *it[5] = {
+    static const char *it[7] = {
         "Liga Brasileira (16 times)", "Liga Europeia (12, ida e volta)",
-        "Liga das Estrelas (8, ida/volta + final)", "Copa Mundial (mata-mata)", "Voltar"
+        "Liga das Estrelas (8, ida/volta + final)", "Copa Mundial (mata-mata)",
+        "Libertadores (4 ligas)", "Supercopa (4 campeoes)", "Voltar"
     };
     for (;;) {
-        int c = menu("MAIS LIGAS", it, 5, 0, 60, NULL), t;
-        if (c < 0 || c == 4) return;
+        int c = menu("MAIS LIGAS", it, 7, 0, 60, NULL), t;
+        if (c < 0 || c == 6) return;
         if (c == 3) { run_cup(); continue; }
+        if (c == 4) { run_liberta(); continue; }
+        if (c == 5) { run_super(); continue; }
         t = pick_team_in("ESCOLHA SEU TIME", c + 1, -1);
         if (t < 0) continue;
         if (c == 0) run_league(16, t, 0, "LIGA BRASILEIRA", 0);
@@ -3614,8 +3845,6 @@ static void mode_more_leagues(void) {
         else run_league(8, t, 1, "LIGA DAS ESTRELAS", 1);
     }
 }
-
-/* ---------------- Titulo e menu principal ---------------- */
 static void title_screen(void) {
     int t = 0, k;
     for (;;) {
@@ -3656,11 +3885,13 @@ int main(void) {
     srand(sceKernelGetSystemTimeLow());
     build_world();
     load_game();
+    { int th = sceKernelCreateThread("snd", snd_thread, 0x12, 0x10000, 0, NULL); if (th >= 0) sceKernelStartThread(th, 0, NULL); }
     title_screen();
     for (;;) {
         int c = menu("MENU PRINCIPAL", items, 10, sel, 40, "Cima/Baixo + X");
         if (c < 0) continue;
         sel = c;
+        fade_out();
         switch (c) {
             case 0: mode_amistoso(); break;
             case 1: { int t = pick_team("CAMPEONATO MUNICIPAL - SEU TIME", -1);
