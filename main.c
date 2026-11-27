@@ -148,6 +148,8 @@ typedef struct {
     int star_nat;
     int fame, moral, day, done, house[6], boots_lv, car, rel[5], pstate, aw[10];
     int fooded, totg, ticket, wc_pending, wc_boost, gym_n, posts, last_rate, home_reward;
+    int tut, goal_g, goal_r, histn;
+    int hist[12][5];
 } Save;
 static Save S;
 #define TM (S.t)
@@ -1965,7 +1967,7 @@ static void next_day(void) {
     if (dom == 1) {
         int inc = sponsor_income();
         S.star_money += inc - 10;
-        S.mcnt[0] = S.mcnt[1] = 0;
+        S.mcnt[0] = S.mcnt[1] = S.mcnt[2] = 0;
         snprintf(buf, sizeof buf, "Novo mes (%s): patrocinios +%d, despesas -10 mil", MESN[mo], inc);
         ev_add(buf);
         if (S.star_money < 0) { addmoral(-3); ev_add("Saldo negativo! Moral -3"); }
@@ -2183,23 +2185,27 @@ static void home_view(void) {
 }
 static void star_status(void) {
     for (;;) {
+        char dt[24];
         frame();
         if (PRESSED(PSP_CTRL_CROSS) || PRESSED(PSP_CTRL_CIRCLE)) break;
         bg("STATUS DO JOGADOR");
+        date_str(S.day, dt);
         rect(330, 36, 140, 150, RGB(30, 110, 45));
         draw_sprite(400, 176, &S.slook, PAL[TM[S.star_team].c1], PAL[TM[S.star_team].c2], 0, 0, 0, 4);
         tx(20, 36, C_GOLD, "%s", S.star_name);
-        tx(20, 52, C_WHITE, "%s - %s", POSN[S.star_pos], SELN[S.star_nat % 16]);
-        tx(20, 66, C_WHITE, "Idade: %d   Overall: %d", S.star_age, S.star_ovr);
-        tx(20, 80, C_WHITE, "Clube: %s", TM[S.star_team].name);
-        tx(20, 98, C_WHITE, "Fama: %d   Moral: %d", S.fame, S.moral);
-        tx(20, 112, C_WHITE, "Dinheiro: %d mil", S.star_money);
-        tx(20, 126, C_WHITE, "Salario: %d mil/jogo", salary_of(S.star_team));
-        tx(20, 144, C_WHITE, "Temp %d: %dj %dg %da", S.star_season, S.star_games, S.star_goals, S.star_assists);
-        tx(20, 158, C_WHITE, "Carreira: %d gols, %d assist.", S.star_tgoals + S.star_goals, S.star_tassists + S.star_assists);
-        { char dt[24]; date_str(S.day, dt); tx(20, 172, C_WHITE, "Data: %s", dt); }
-        tx(20, 186, C_WHITE, "Carro: %s   Chuteira nv %d", CARN[S.car], S.boots_lv);
-        tx(20, 204, C_WHITE, "Premios: %d   Copas: %d", awards_total(), S.aw[7]);
+        tx(20, 50, C_WHITE, "%s - %s, %d anos", POSN[S.star_pos], SELN[S.star_nat % 16], S.star_age);
+        tx(20, 64, C_WHITE, "%s  (overall %d)", TM[S.star_team].name, S.star_ovr);
+        tx(20, 82, C_WHITE, "Fama");
+        rect(72, 82, 204, 8, C_DARK); rect(74, 84, S.fame * 2, 4, C_GOLD);
+        tx(20, 96, C_WHITE, "Moral");
+        rect(72, 96, 204, 8, C_DARK); rect(74, 98, S.moral * 2, 4, (S.moral >= 50) ? RGB(90, 170, 100) : RGB(200, 90, 90));
+        tx(20, 114, C_WHITE, "Dinheiro: %d mil   Salario: %d mil", S.star_money, salary_of(S.star_team));
+        tx(20, 128, C_WHITE, "Temp %d: %dj %dg %da", S.star_season, S.star_games, S.star_goals, S.star_assists);
+        tx(20, 142, C_WHITE, "Carreira: %d gols, %d assist.", S.star_tgoals + S.star_goals, S.star_tassists + S.star_assists);
+        tx(20, 156, C_WHITE, "Data: %s", dt);
+        tx(20, 170, C_WHITE, "Carro: %s   Chuteira nv %d", CARN[S.car], S.boots_lv);
+        tx(20, 184, C_WHITE, "Premios: %d   Copas: %d   Ligas: %d", awards_total(), S.aw[7], S.aw[8]);
+        tx(20, 202, C_WHITE, "Meta: %d gols / nota %d.%d", S.goal_g, S.goal_r / 10, S.goal_r % 10);
         tx(8, SH - 12, RGB(170, 200, 170), "X: voltar");
     }
 }
@@ -2218,8 +2224,125 @@ static void star_awards(int avg) {
     if (grp == 1 && score >= 108 + rand() % 15) { S.aw[5]++; addfame(8); snprintf(b[n], 72, "MELHOR JOGADOR DA AMERICA"); ln[n] = b[n]; n++; }
     if (grp == 2 && score >= 135 + rand() % 15) { S.aw[6]++; addfame(25); addmoral(20); snprintf(b[n], 72, "*** BOLA DE OURO! ***"); ln[n] = b[n]; n++; }
     S.wc_boost = 0;
-    if (n == 0) { ln[0] = "Nenhum premio desta vez. Continue evoluindo!"; n = 1; }
+    if (n == 0) { ln[0] = "Nenhum premio desta vez. Continue evoluindo!"; n = 1; } else snd(5);
     list_screen("PREMIOS DA TEMPORADA", ln, n);
+}
+
+/* ---------- metas, historico e telas de apoio ---------- */
+static void new_goals(void) {
+    int o = S.star_ovr;
+    S.goal_g = (S.star_pos == 0) ? 3 + o / 14 : ((S.star_pos == 1) ? 1 + o / 22 : o / 40);
+    S.goal_r = 55 + o / 5;
+}
+static void season_goals_eval(int avg) {
+    static char b[4][72];
+    const char *ln[4];
+    int mg = (S.star_goals >= S.goal_g), mr = (avg >= S.goal_r), n = 0;
+    snprintf(b[n], 72, "Meta de gols: %d (voce fez %d)  %s", S.goal_g, S.star_goals, mg ? "OK" : "X"); ln[n] = b[n]; n++;
+    snprintf(b[n], 72, "Meta de nota: %d.%d (media %d.%d)  %s", S.goal_r / 10, S.goal_r % 10, avg / 10, avg % 10, mr ? "OK" : "X"); ln[n] = b[n]; n++;
+    if (mg && mr) { addfame(5); addmoral(8); S.star_money += eci(30); snprintf(b[n], 72, "Metas cumpridas! Bonus de %d mil.", eci(30)); }
+    else if (mg || mr) { addfame(2); S.star_money += eci(10); snprintf(b[n], 72, "Meta parcial. Bonus de %d mil.", eci(10)); }
+    else { addmoral(-5); snprintf(b[n], 72, "Metas nao cumpridas. Moral -5."); }
+    ln[n] = b[n]; n++;
+    list_screen("METAS DA TEMPORADA", ln, n);
+}
+static void hist_add(int avg) {
+    int k;
+    if (S.histn >= 12) {
+        for (k = 1; k < 12; k++) memcpy(S.hist[k - 1], S.hist[k], sizeof S.hist[0]);
+        S.histn = 11;
+    }
+    S.hist[S.histn][0] = S.star_season; S.hist[S.histn][1] = S.star_team;
+    S.hist[S.histn][2] = S.star_goals; S.hist[S.histn][3] = S.star_assists; S.hist[S.histn][4] = avg;
+    S.histn++;
+}
+static void history_screen(void) {
+    static char b[13][72];
+    const char *ln[13];
+    int i, n = 0;
+    for (i = 0; i < S.histn; i++) {
+        snprintf(b[n], 72, "T%-2d %-12.12s %2dg %2da  nota %d.%d", S.hist[i][0], TM[S.hist[i][1]].name, S.hist[i][2], S.hist[i][3], S.hist[i][4] / 10, S.hist[i][4] % 10);
+        ln[n] = b[n]; n++;
+    }
+    if (n == 0) { ln[0] = "Nenhuma temporada concluida ainda."; n = 1; }
+    list_screen("HISTORICO DA CARREIRA", ln, n);
+}
+static void help_screen(void) {
+    static const char *ln[9] = {
+        "MUNDO: direcional/analogico anda, R corre",
+        "X: entrar nas portas e falar com as pessoas",
+        "TRIANGULO: celular    START: menu",
+        "PARTIDA: X passe/desarme   QUAD: chute",
+        "TRI: lancamento   O: carrinho   R: correr",
+        "Jogue no estadio no dia marcado do calendario.",
+        "Treine na academia e cuide da moral e da fama.",
+        "Mobilie a casa, assine patrocinios e viaje.",
+        "Metas da temporada dao bonus no fim do ano."
+    };
+    list_screen("COMO JOGAR", ln, 9);
+}
+static void goals_screen(void) {
+    static char b[8][72];
+    const char *ln[8];
+    int n = 0, nm = (S.star_season - 1) * 360 + 44 + 30 * S.star_games + 1;
+    char dt[24];
+    date_str(nm, dt);
+    snprintf(b[n], 72, "Gols na temporada: %d / %d", S.star_goals, S.goal_g); ln[n] = b[n]; n++;
+    snprintf(b[n], 72, "Nota minima da temporada: %d.%d", S.goal_r / 10, S.goal_r % 10); ln[n] = b[n]; n++;
+    if (S.star_games > 0) { snprintf(b[n], 72, "Nota media atual: %d.%d", S.star_rate / S.star_games / 10, (S.star_rate / S.star_games) % 10); ln[n] = b[n]; n++; }
+    snprintf(b[n], 72, "Proximo jogo: %s", dt); ln[n] = b[n]; n++;
+    {
+        int k, hc = 0, sc = 0;
+        for (k = 0; k < 6; k++) if (S.house[k] == 2) hc++;
+        for (k = 0; k < 4; k++) if (S.spons & (1 << k)) sc++;
+        snprintf(b[n], 72, "Moveis montados: %d/6", hc); ln[n] = b[n]; n++;
+        snprintf(b[n], 72, "Patrocinios: %d   Premios: %d", sc, awards_total()); ln[n] = b[n]; n++;
+    }
+    list_screen("OBJETIVOS", ln, n);
+}
+static int match_preview(int opp) {
+    Look lo;
+    int ids[16], n = roster_of(opp, ids), best = 0, k, t = 0;
+    u32 o1 = PAL[TM[opp].c1], o2 = PAL[TM[opp].c2];
+    for (k = 0; k < n; k++) if (S.plr[ids[k]].ovr > S.plr[ids[best]].ovr) best = k;
+    look_of(ids[best], &lo);
+    if (cdist(PAL[TM[S.star_team].c1], o1) < 140) { o1 = PAL[TM[opp].c3]; o2 = PAL[TM[opp].c4]; }
+    for (;;) {
+        frame(); t++;
+        if (PRESSED(PSP_CTRL_CROSS)) return 1;
+        if (PRESSED(PSP_CTRL_CIRCLE)) return 0;
+        bg("PRE-JOGO");
+        rect(20, 34, 200, 160, RGB(30, 110, 45)); rect(260, 34, 200, 160, RGB(30, 110, 45));
+        for (k = 0; k < 5; k++) { rect(20, 34 + k * 32, 200, 16, RGB(38, 124, 52)); rect(260, 34 + k * 32, 200, 16, RGB(38, 124, 52)); }
+        draw_sprite(120, 182, &S.slook, PAL[TM[S.star_team].c1], PAL[TM[S.star_team].c2], 0, 1, 0, 4);
+        draw_sprite(360, 182, &lo, o1, o2, 0, -1, 0, 4);
+        tx(24, 38, C_GOLD, "%s", TM[S.star_team].name);
+        tx(264, 38, C_GOLD, "%s", TM[opp].name);
+        tx(24, 50, C_WHITE, "Forca %d", TM[S.star_team].str);
+        tx(264, 50, C_WHITE, "Forca %d", TM[opp].str);
+        txc(206, C_WHITE, "Voce: %s   Overall %d   Moral %d", S.star_name, S.star_ovr, S.moral);
+        txc(220, C_WHITE, "Meta de gols: %d (feitos %d)   Dif: %s", S.goal_g, S.star_goals, DIFN[S.diff]);
+        txc(236, (t / 20) % 2 ? C_GOLD : C_WHITE, "X: entrar em campo     O: voltar");
+    }
+}
+static void match_summary(const char *a, int rate, int mvp, int sg, int sa, int dfame, int dmoral, int win, int dr) {
+    int t = 0;
+    for (;;) {
+        frame(); t++;
+        if (PRESSED(PSP_CTRL_CROSS) || PRESSED(PSP_CTRL_CIRCLE)) break;
+        bg("RESUMO DA PARTIDA");
+        txc(34, C_GOLD, "%s", a);
+        rect(20, 56, 170, 140, RGB(30, 110, 45));
+        draw_sprite(105, 184, &S.slook, PAL[TM[S.star_team].c1], PAL[TM[S.star_team].c2], 0, 1, 0, 4);
+        tx(206, 62, win ? RGB(120, 255, 120) : (dr ? C_WHITE : RGB(255, 140, 140)), "%s", win ? "VITORIA" : (dr ? "EMPATE" : "DERROTA"));
+        tx(206, 82, C_WHITE, "Gols: %d   Assist.: %d", sg, sa);
+        tx(206, 100, C_WHITE, "Nota: %d.%d", rate / 10, rate % 10);
+        rect(206, 112, 210, 10, C_DARK);
+        rect(208, 114, rate * 206 / 100, 6, (rate >= 75) ? C_GOLD : ((rate >= 55) ? RGB(90, 170, 100) : RGB(200, 90, 90)));
+        tx(206, 132, C_WHITE, "Fama: %+d   Moral: %+d", dfame, dmoral);
+        if (mvp && (t / 15) % 2 == 0) tx(206, 154, C_GOLD, "MELHOR EM CAMPO!");
+        tx(8, SH - 12, RGB(170, 200, 170), "X: continuar");
+    }
 }
 
 static void star_league_title(void) {
@@ -2253,13 +2376,14 @@ static void star_play(void) {
         return;
     }
     opp = star_cur_opp();
+    if (!match_preview(opp)) return;
     s0 = star_s0(S.star_team);
     R = play_match(S.star_team, opp, 90, 1, POSI[S.star_pos], s0);
     if (R.quit) return;
     star_apply_round(R.g0, R.g1);
     {
-        int win = R.g0 > R.g1, dr = (R.g0 == R.g1), rate, mvp, dm;
-        char a[64], b[64], c[64];
+        int win = R.g0 > R.g1, dr = (R.g0 == R.g1), rate, mvp, dm, f0 = S.fame, m0 = S.moral;
+        char a[64];
         rate = 58 + R.sg * 11 + R.sa * 7 + (win ? 6 : (dr ? 2 : -2)) + (rand() % 11 - 5) + (S.star_ovr - 60) / 8 + (S.moral - 50) / 20;
         if (rate < 30) rate = 30;
         if (rate > 100) rate = 100;
@@ -2271,11 +2395,9 @@ static void star_play(void) {
         dm = win ? 4 : (dr ? 0 : -4);
         if (rate < 55) dm -= 2;
         addmoral(dm);
-        if (mvp) { S.aw[0]++; addmoral(3); }
+        if (mvp) { S.aw[0]++; addmoral(3); snd(5); }
         snprintf(a, sizeof a, "%s %d x %d %s", TM[S.star_team].name, R.g0, R.g1, TM[opp].name);
-        snprintf(b, sizeof b, "Seus gols: %d   Assistencias: %d", R.sg, R.sa);
-        snprintf(c, sizeof c, "Nota: %d.%d%s", rate / 10, rate % 10, mvp ? "  MELHOR EM CAMPO!" : "");
-        end_screen("TORNE UMA ESTRELA", a, b, c);
+        match_summary(a, rate, mvp, R.sg, R.sa, S.fame - f0, S.moral - m0, win, dr);
         if (rand() % 100 < 7 - ((S.at[5] > 70) ? 2 : 0)) {
             char l[48];
             S.injury = 3 + rand() % 7;
@@ -2351,6 +2473,8 @@ static void star_season_end(void) {
     end_screen("TORNE UMA ESTRELA", a, b, c);
     star_awards(avg);
     star_league_title();
+    season_goals_eval(avg);
+    hist_add(avg);
     S.star_tgoals += S.star_goals; S.star_tassists += S.star_assists;
     if (S.star_season % 4 == 0) {
         int selk = MAXT + S.star_nat;
@@ -2375,6 +2499,7 @@ static void star_season_end(void) {
     S.star_games = S.star_goals = S.star_assists = S.star_rate = 0;
     S.star_moved = 0;
     star_league_reset();
+    new_goals();
     gen_star_offers();
     if (S.star_age >= 38) {
         snprintf(a, sizeof a, "%s se aposentou!", S.star_name);
@@ -3088,25 +3213,46 @@ static void stn_draw(int t, const Stn *s) {
         rect(s->x, s->y, 2, s->h, RGB(110, 110, 110)); rect(s->x + s->w - 2, s->y, 2, s->h, RGB(110, 110, 110));
     }
 }
+static int clock_min(void) { return (wt / 12 + 480) % 1440; }
+static float night_f(void) {
+    int m = clock_min();
+    if (m >= 420 && m < 1080) return 1.0f;
+    if (m >= 1080 && m < 1200) return 1.0f - 0.45f * (m - 1080) / 120.0f;
+    if (m >= 1200 || m < 300) return 0.55f;
+    return 0.55f + 0.45f * (m - 300) / 120.0f;
+}
+static float nf = 1.0f;
+static u32 dim(u32 c) {
+    if (nf >= 0.99f) return c;
+    return 0xFF000000u | ((u32)((float)((c >> 16) & 255) * nf) << 16) | ((u32)((float)((c >> 8) & 255) * nf) << 8) | (u32)((float)(c & 255) * nf);
+}
 static void hud_draw(const char *prompt, int hl) {
     char dt[24];
+    int m = clock_min();
     date_str(S.day, dt);
     rect(0, 0, SW, 20, RGB(0, 20, 8));
     rect(0, 20, SW, 2, C_GOLD);
-    tx(6, 6, C_WHITE, "%s $%d Fama %d Moral %d Ovr %d%s", dt, S.star_money, S.fame, S.moral, S.star_ovr, (S.injury > 0) ? " LESAO" : "");
+    tx(6, 6, C_WHITE, "%s $%d Ovr %d%s", dt, S.star_money, S.star_ovr, (S.injury > 0) ? " LES" : "");
+    tx(236, 6, C_WHITE, "F"); rect(246, 7, 52, 6, C_DARK); rect(247, 8, S.fame * 50 / 100, 4, C_GOLD);
+    tx(306, 6, C_WHITE, "M"); rect(316, 7, 52, 6, C_DARK); rect(317, 8, S.moral * 50 / 100, 4, (S.moral >= 50) ? RGB(90, 170, 100) : RGB(200, 90, 90));
+    tx(SW - 46, 6, C_WHITE, "%02d:%02d", m / 60, m % 60);
     rect(0, SH - 18, SW, 18, RGB(0, 20, 8));
     tx(8, SH - 13, hl ? C_GOLD : RGB(170, 200, 170), "%s", prompt);
 }
 static int world_menu(void) {
-    static const char *it[8] = {"Status do jogador", "Atributos", "Calendario", "Trofeus", "Missoes da casa", "Celular", "Salvar e sair", "Voltar"};
-    int c = menu("MENU", it, 8, 0, 50, NULL);
+    static const char *it[11] = {"Status do jogador", "Atributos", "Objetivos", "Calendario", "Historico", "Trofeus",
+                                 "Missoes da casa", "Celular", "Ajuda", "Salvar e sair", "Voltar"};
+    int c = menu("MENU", it, 11, 0, 50, NULL);
     if (c == 0) star_status();
     else if (c == 1) attr_screen();
-    else if (c == 2) calendar_screen(S.day, 0);
-    else if (c == 3) trophies_screen();
-    else if (c == 4) missions_screen();
-    else if (c == 5) phone_menu();
-    else if (c == 6) { save_game(); return 1; }
+    else if (c == 2) goals_screen();
+    else if (c == 3) calendar_screen(S.day, 0);
+    else if (c == 4) history_screen();
+    else if (c == 5) trophies_screen();
+    else if (c == 6) missions_screen();
+    else if (c == 7) phone_menu();
+    else if (c == 8) help_screen();
+    else if (c == 9) { save_game(); return 1; }
     return 0;
 }
 static void interior(int t) {
@@ -3195,62 +3341,188 @@ static int door_near(int x, int y) {
 }
 static void draw_building(const Loc *l, int t, int cx, int cy) {
     int x = l->x - cx, y = l->y - cy, k, j;
+    u32 win = (nf < 0.8f) ? RGB(255, 230, 120) : RGB(170, 215, 240);
     if (x > SW || x + l->w < 0 || y > SH + 12 || y + l->h < 0) return;
-    rect(x, y, l->w, l->h, l->col);
-    rect(x, y, l->w, 12, l->roof);
-    rect(x, y + l->h - 3, l->w, 3, RGB(60, 60, 60));
+    rect(x, y, l->w, l->h, dim(l->col));
+    rect(x, y, l->w, 12, dim(l->roof));
+    rect(x, y + l->h - 3, l->w, 3, dim(RGB(60, 60, 60)));
     if (t == 2) {
-        rect(x + 20, y + 30, l->w - 40, l->h - 60, RGB(40, 150, 60));
+        rect(x + 20, y + 30, l->w - 40, l->h - 60, dim(RGB(40, 150, 60)));
         rect(x + 20, y + 30, l->w - 40, 2, C_WHITE); rect(x + 20, y + l->h - 32, l->w - 40, 2, C_WHITE);
         rect(x + l->w / 2, y + 30, 2, l->h - 60, C_WHITE);
+        if (nf < 0.8f) { rect(x + 6, y + 14, 6, 6, win); rect(x + l->w - 12, y + 14, 6, 6, win); }
     } else if (t == 9) {
-        rect(x + 8, y + 20, l->w - 16, l->h - 40, RGB(220, 140, 70));
+        rect(x + 8, y + 20, l->w - 16, l->h - 40, dim(RGB(220, 140, 70)));
         rect(x + 8, y + 20, l->w - 16, 2, C_WHITE); rect(x + 8, y + l->h - 22, l->w - 16, 2, C_WHITE);
         rect(x + l->w / 2, y + 20, 2, l->h - 40, C_WHITE);
         circle(x + l->w / 2, y + l->h / 2, 18, C_WHITE);
     } else if (t == 10) {
-        rect(x + 10, y + 24, l->w - 20, 14, RGB(70, 70, 80));
+        rect(x + 10, y + 24, l->w - 20, 14, dim(RGB(70, 70, 80)));
         rect(x + 40, y + 60, 90, 8, C_WHITE); rect(x + 70, y + 52, 8, 24, C_WHITE);
         rect(x + 120, y + 56, 6, 16, C_WHITE);
     } else {
         for (j = 0; j < 2; j++) for (k = 0; k < (l->w - 20) / 24; k++)
-            rect(x + 10 + k * 24, y + 22 + j * 22, 14, 12, RGB(170, 215, 240));
+            rect(x + 10 + k * 24, y + 22 + j * 22, 14, 12, win);
     }
-    rect(x + l->w / 2 - 8, y + l->h - 18, 16, 15, RGB(90, 55, 25));
-    rect(x + l->w / 2 - 6, y + l->h - 16, 12, 13, RGB(130, 85, 45));
+    rect(x + l->w / 2 - 8, y + l->h - 18, 16, 15, dim(RGB(90, 55, 25)));
+    rect(x + l->w / 2 - 6, y + l->h - 16, 12, 13, dim(RGB(130, 85, 45)));
+    if (nf < 0.8f) rect(x + l->w / 2 - 3, y + l->h - 12, 6, 9, RGB(255, 220, 120));
     txs(x + (l->w - (int)strlen(l->name) * 8) / 2, y - 11, C_WHITE, l->name);
 }
 static void draw_decor(const Loc *l, int cx, int cy) {
     int x = l->x - cx, y = l->y - cy;
+    u32 win = (nf < 0.8f) ? RGB(255, 230, 120) : RGB(170, 215, 240);
     if (x > SW || x + l->w < 0 || y > SH || y + l->h < 0) return;
-    rect(x, y, l->w, l->h, l->col);
-    rect(x, y, l->w, 12, l->roof);
-    rect(x + 8, y + 22, 14, 12, RGB(170, 215, 240)); rect(x + l->w - 22, y + 22, 14, 12, RGB(170, 215, 240));
-    rect(x + l->w / 2 - 6, y + l->h - 16, 12, 16, RGB(110, 70, 40));
+    rect(x, y, l->w, l->h, dim(l->col));
+    rect(x, y, l->w, 12, dim(l->roof));
+    rect(x + 8, y + 22, 14, 12, win); rect(x + l->w - 22, y + 22, 14, 12, win);
+    rect(x + l->w / 2 - 6, y + l->h - 16, 12, 16, dim(RGB(110, 70, 40)));
+}
+
+/* ---------- populacao: pedestres e carros ---------- */
+#define NNPC 30
+#define NCAR 14
+typedef struct { float x, y; int dx, dy, t; Look lk; u32 c1, c2; } Npc;
+typedef struct { float x; int y, dir, city; float sp; u32 col; } Car;
+static Npc npc[NNPC];
+static Car cars[NCAR];
+static void world_pop_init(void) {
+    int i;
+    for (i = 0; i < NNPC; i++) {
+        Npc *n = &npc[i];
+        int c = i % 6, ox = (c % 3) * CW, oy = (c / 3) * CH;
+        n->x = (float)(ox + 20 + rand() % (CW - 40)); n->y = (float)(oy + 238 + rand() % 22);
+        if (i % 3 == 0) { n->x = (float)(ox + 148 + rand() % 24); n->y = (float)(oy + 20 + rand() % (CH - 40)); }
+        n->dx = (rand() % 3) - 1; n->dy = 0; n->t = rand() % 100;
+        memset(&n->lk, 0, sizeof n->lk);
+        n->lk.skin = (unsigned char)(rand() % 5); n->lk.hair = (unsigned char)(rand() % 6); n->lk.hcol = (unsigned char)(rand() % 6);
+        n->lk.beard = (unsigned char)((rand() % 4 == 0) ? rand() % 4 : 0); n->lk.build = (unsigned char)(rand() % 3);
+        n->lk.boots = (unsigned char)(rand() % 12); n->lk.socks = (unsigned char)(rand() % 3);
+        n->c1 = PAL[rand() % 12]; n->c2 = PAL[rand() % 12];
+    }
+    for (i = 0; i < NCAR; i++) {
+        Car *c = &cars[i];
+        int ox = ((i % 6) % 3) * CW, oy = ((i % 6) / 3) * CH;
+        c->city = i % 6; c->y = oy + ((i & 1) ? 254 : 240); c->dir = (i & 1) ? -1 : 1;
+        c->sp = 1.0f + (rand() % 12) / 10.0f; c->x = (float)(ox + rand() % CW); c->col = PAL[rand() % 12];
+    }
+}
+static void world_pop_update(void) {
+    int i;
+    for (i = 0; i < NNPC; i++) {
+        Npc *n = &npc[i];
+        float nx, ny;
+        if (abs((int)n->x - wpx) > 360 || abs((int)n->y - wpy) > 240) continue;
+        if (--n->t <= 0) {
+            int k = rand() % 5;
+            n->t = 40 + rand() % 120;
+            n->dx = (k == 0) ? -1 : ((k == 1) ? 1 : 0);
+            n->dy = (k == 2) ? -1 : ((k == 3) ? 1 : 0);
+        }
+        nx = n->x + n->dx * 0.6f; ny = n->y + n->dy * 0.6f;
+        if (!blocked((int)nx, (int)ny) && abs((int)nx - wpx) + abs((int)ny - wpy) > 8) { n->x = nx; n->y = ny; }
+        else n->t = 0;
+    }
+    for (i = 0; i < NCAR; i++) {
+        Car *c = &cars[i];
+        int ox = ((c->city) % 3) * CW;
+        c->x += c->dir * c->sp;
+        if (c->x > ox + CW) c->x = (float)ox;
+        if (c->x < ox) c->x = (float)(ox + CW);
+    }
+}
+static void draw_npcs(int cx, int cy, int front) {
+    int i;
+    for (i = 0; i < NNPC; i++) {
+        Npc *n = &npc[i];
+        int sx = (int)n->x - cx, sy = (int)n->y - cy;
+        if (sx < -20 || sx > SW + 20 || sy < 0 || sy > SH + 30) continue;
+        if ((n->y > wpy) != front) continue;
+        draw_sprite(sx, sy, &n->lk, n->c1, n->c2, 0, (n->dx > 0) - (n->dx < 0), (n->dx || n->dy) ? 1 + ((wt / 8 + i) % 2) : 0, 1);
+    }
+}
+static void draw_cars(int cx, int cy) {
+    int i;
+    for (i = 0; i < NCAR; i++) {
+        Car *c = &cars[i];
+        int sx = (int)c->x - cx, sy = c->y - cy;
+        if (sx < -30 || sx > SW + 30 || sy < -20 || sy > SH + 20) continue;
+        rect(sx - 13, sy - 6, 26, 10, c->col);
+        rect(sx - 7, sy - 10, 14, 5, RGB(170, 210, 240));
+        rect(sx - 11, sy + 2, 6, 4, C_DARK); rect(sx + 5, sy + 2, 6, 4, C_DARK);
+        if (nf < 0.8f) rect(c->dir > 0 ? sx + 11 : sx - 13, sy - 3, 3, 3, RGB(255, 240, 150));
+    }
+}
+static int near_npc(void) {
+    int i, best = -1, bd = 24 * 24;
+    for (i = 0; i < NNPC; i++) {
+        int dx = (int)npc[i].x - wpx, dy = (int)npc[i].y - wpy;
+        if (dx * dx + dy * dy < bd) { bd = dx * dx + dy * dy; best = i; }
+    }
+    return best;
+}
+static void npc_talk(int i) {
+    static const char *it[4] = {"Tirar foto", "Dar autografo", "Conversar", "Voltar"};
+    static const char *TK[6] = {"Voce e o meu idolo!", "Joga demais! Vai ser craque!", "Torco por voce desde o inicio!",
+                                "Sera que o time leva a liga?", "Posso tirar uma foto?", "Meu filho quer ser como voce!"};
+    int c = menu("FA", it, 4, 0, 60, NULL);
+    if (c < 0 || c == 3) return;
+    if (S.mcnt[2] >= 12) { msg2("Muita gente pedindo foto!", "Descanse. Tente no proximo mes."); return; }
+    S.mcnt[2]++;
+    if (c == 0) { addfame(1); addmoral(1); msg2("Foto postada pelo fa!", "Fama +1  Moral +1"); }
+    else if (c == 1) { addfame(1); addmoral(2); msg2("Autografo dado!", "Fama +1  Moral +2"); }
+    else { addmoral(1); msg2(TK[(i + S.day) % 6], "Conversa animada! Moral +1"); }
+}
+static void minimap(void) {
+    int c = cur_city(), ox = (c % 3) * CW, oy = (c / 3) * CH, k, x0 = SW - 92, y0 = 26;
+    rect(x0 - 1, y0 - 1, 90, 53, C_DARK);
+    rect(x0, y0, 88, 51, RGB(40, 110, 50));
+    rect(x0, y0 + 232 * 51 / 576, 88, 3, RGB(150, 150, 150));
+    rect(x0 + 144 * 88 / 960, y0, 3, 51, RGB(150, 150, 150));
+    for (k = 0; k < NLT; k++) {
+        const Loc *l = &GL[c * NLT + k];
+        int w = l->w * 88 / 960, h = l->h * 51 / 576;
+        rect(x0 + (l->x - ox) * 88 / 960, y0 + (l->y - oy) * 51 / 576, (w < 3) ? 3 : w, (h < 3) ? 3 : h, l->col);
+    }
+    rect(x0 + (wpx - ox) * 88 / 960 - 1, y0 + (wpy - oy) * 51 / 576 - 1, 3, 3, ((wt / 10) % 2) ? C_WHITE : RGB(255, 60, 60));
+}
+static void obj_text(char *o, int n) {
+    int nm = star_next_match_day(), dd = nm - S.day, k, hc = 0;
+    for (k = 0; k < 6; k++) if (S.house[k] == 2) hc++;
+    if (S.injury > 0) snprintf(o, n, "Lesao: faca fisioterapia na Academia");
+    else if (S.wc_pending && !S.ticket) snprintf(o, n, "Copa: compre a passagem na Agencia");
+    else if (S.wc_pending) snprintf(o, n, "Copa: embarque no Aeroporto");
+    else if (dd <= 0) snprintf(o, n, "HOJE TEM JOGO! Va ao Estadio");
+    else if (dd <= 3) snprintf(o, n, "Jogo em %d dias. Treine na Academia", dd);
+    else if (hc < 6) snprintf(o, n, "Mobilie a casa (Loja de Moveis): %d/6", hc);
+    else snprintf(o, n, "Meta: %d/%d gols. Jogo em %d dias", S.star_goals, S.goal_g, dd);
 }
 static void world_draw(void) {
-    int camx = wpx - SW / 2, camy = wpy - SH / 2, i, k, c, tx_, ty_, dn;
+    int camx = wpx - SW / 2, camy = wpy - SH / 2, i, k, c, tx_, ty_, dn, nn;
     if (camx < 0) camx = 0;
     if (camx > WW - SW) camx = WW - SW;
     if (camy < 0) camy = 0;
     if (camy > WH - SH) camy = WH - SH;
-    rect(0, 0, SW, SH, RGB(52, 142, 60));
+    nf = night_f();
+    rect(0, 0, SW, SH, dim(RGB(52, 142, 60)));
     for (ty_ = camy / 16; ty_ <= (camy + SH) / 16; ty_++)
         for (tx_ = camx / 16; tx_ <= (camx + SW) / 16; tx_++)
-            if (((tx_ * 7 + ty_ * 13) % 5) == 0) rect(tx_ * 16 - camx + 4, ty_ * 16 - camy + 5, 4, 2, RGB(44, 128, 52));
+            if (((tx_ * 7 + ty_ * 13) % 5) == 0) rect(tx_ * 16 - camx + 4, ty_ * 16 - camy + 5, 4, 2, dim(RGB(44, 128, 52)));
     for (c = 0; c < 6; c++) {
         int ox = (c % 3) * CW - camx, oy = (c / 3) * CH - camy;
-        rect(ox, oy + 224, CW, 48, RGB(170, 170, 160));
-        rect(ox, oy + 232, CW, 32, RGB(70, 70, 75));
-        for (k = 0; k < CW; k += 40) rect(ox + k, oy + 247, 20, 2, RGB(230, 230, 120));
-        rect(ox + 136, oy, 48, CH, RGB(170, 170, 160));
-        rect(ox + 144, oy, 32, CH, RGB(70, 70, 75));
-        for (k = 0; k < CH; k += 40) rect(ox + 159, oy + k, 2, 20, RGB(230, 230, 120));
-        rect(ox + 472, oy + 264, 48, CH - 264, RGB(170, 170, 160));
-        rect(ox + 480, oy + 264, 32, CH - 264, RGB(70, 70, 75));
+        rect(ox, oy + 224, CW, 48, dim(RGB(170, 170, 160)));
+        rect(ox, oy + 232, CW, 32, dim(RGB(70, 70, 75)));
+        for (k = 0; k < CW; k += 40) rect(ox + k, oy + 247, 20, 2, dim(RGB(230, 230, 120)));
+        rect(ox + 136, oy, 48, CH, dim(RGB(170, 170, 160)));
+        rect(ox + 144, oy, 32, CH, dim(RGB(70, 70, 75)));
+        for (k = 0; k < CH; k += 40) rect(ox + 159, oy + k, 2, 20, dim(RGB(230, 230, 120)));
+        rect(ox + 472, oy + 264, 48, CH - 264, dim(RGB(170, 170, 160)));
+        rect(ox + 480, oy + 264, 32, CH - 264, dim(RGB(70, 70, 75)));
     }
+    draw_cars(camx, camy);
     for (i = 0; i < NGL; i++) if (GL[i].y + GL[i].h <= wpy) draw_building(&GL[i], i % NLT, camx, camy);
     for (i = 0; i < NDH; i++) if (DH[i].y + DH[i].h <= wpy) draw_decor(&DH[i], camx, camy);
+    draw_npcs(camx, camy, 0);
     {
         int sx = wpx - camx, sy = wpy - camy;
         if (S.car > 0) {
@@ -3260,20 +3532,32 @@ static void world_draw(void) {
         }
         draw_sprite(sx, sy, &S.slook, PAL[TM[S.star_team].c1], PAL[TM[S.star_team].c2], 0, wfd, wph, 1);
     }
+    draw_npcs(camx, camy, 1);
     for (i = 0; i < NGL; i++) if (GL[i].y + GL[i].h > wpy) draw_building(&GL[i], i % NLT, camx, camy);
     for (i = 0; i < NDH; i++) if (DH[i].y + DH[i].h > wpy) draw_decor(&DH[i], camx, camy);
+    if ((S.day % 6) == 2) {
+        unsigned int r = (unsigned int)(wt * 2654435761u);
+        for (k = 0; k < 60; k++) {
+            r = r * 1103515245u + 12345u;
+            rect((int)((r >> 8) % SW), (int)((r >> 20) % SH), 1, 5, RGB(170, 190, 230));
+        }
+    }
+    minimap();
     dn = door_near(wpx, wpy);
+    nn = near_npc();
     {
         char pr[64];
         if (dn >= 0) { snprintf(pr, sizeof pr, "X: entrar - %s", GL[dn].name); hud_draw(pr, 1); }
-        else { snprintf(pr, sizeof pr, "TRI: celular  START: menu  R: correr  [%s]", CITYN[cur_city()]); hud_draw(pr, 0); }
+        else if (nn >= 0) hud_draw("X: falar com o fa", 1);
+        else { obj_text(pr, sizeof pr); hud_draw(pr, 0); }
     }
 }
 static void star_world(void) {
     g_quit = 0;
+    if (!S.tut) { S.tut = 1; help_screen(); }
     while (S.star_started && !g_quit) {
         float ax, ay, spd;
-        int sx, sy, di;
+        int sx, sy, di, nn;
         frame(); wt++;
         ax = (pad.Lx - 128) / 128.0f; ay = (pad.Ly - 128) / 128.0f;
         if (fabsf(ax) < 0.25f) ax = 0;
@@ -3289,8 +3573,11 @@ static void star_world(void) {
         if (sy != 0 && !blocked(wpx, wpy + sy)) wpy += sy;
         if (ax > 0.3f) wfd = 1; else if (ax < -0.3f) wfd = -1;
         wph = (sx != 0 || sy != 0) ? 1 + ((wt / 6) % 2) : 0;
+        world_pop_update();
         di = door_near(wpx, wpy);
+        nn = near_npc();
         if (di >= 0 && PRESSED(PSP_CTRL_CROSS)) { interact(di); g_exit_int = 0; continue; }
+        if (di < 0 && nn >= 0 && PRESSED(PSP_CTRL_CROSS)) { npc_talk(nn); continue; }
         if (PRESSED(PSP_CTRL_TRIANGLE)) { phone_menu(); g_exit_int = 0; continue; }
         if (PRESSED(PSP_CTRL_START)) { if (world_menu()) return; g_exit_int = 0; continue; }
         world_draw();
@@ -3330,6 +3617,7 @@ static void mode_star(void) {
             memset(S.mcnt, 0, sizeof S.mcnt);
             star_init_attrs();
             star_league_reset();
+            new_goals(); S.tut = 0; S.histn = 0;
             wpx = ((S.star_team / GSZ) % 3) * CW + 90; wpy = ((S.star_team / GSZ) / 3) * CH + 214;
             gen_star_offers();
             save_game();
@@ -3884,6 +4172,7 @@ int main(void) {
     sceCtrlSetSamplingMode(PSP_CTRL_MODE_ANALOG);
     srand(sceKernelGetSystemTimeLow());
     build_world();
+    world_pop_init();
     load_game();
     { int th = sceKernelCreateThread("snd", snd_thread, 0x12, 0x10000, 0, NULL); if (th >= 0) sceKernelStartThread(th, 0, NULL); }
     title_screen();
