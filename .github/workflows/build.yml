@@ -21,12 +21,14 @@ jobs:
           CFLAGS = -O2 -G0 -Wall
           CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti
           ASFLAGS = $(CFLAGS)
-          LIBS = -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpsppower -lm
+          LIBS = -lpspdebug -lpspdisplay -lpspge -lpspctrl -lpsppower -lpspaudio -lm
           EXTRA_TARGETS = EBOOT.PBP
           PSP_EBOOT_TITLE = Futebol GS
-          PSPSDK = $(shell psp-config --pspsdk-path)
-          include $(PSPSDK)/lib/build.mak
           EOF
+          if [ -f ICON0.PNG ]; then echo "PSP_EBOOT_ICON = ICON0.PNG" >> Makefile; fi
+          if [ -f PIC1.PNG ]; then echo "PSP_EBOOT_PIC1 = PIC1.PNG" >> Makefile; fi
+          echo 'PSPSDK = $(shell psp-config --pspsdk-path)' >> Makefile
+          echo 'include $(PSPSDK)/lib/build.mak' >> Makefile
 
       - name: Criar script de build (roda dentro do pspdev)
         run: |
@@ -64,3 +66,4 @@ jobs:
           path: |
             FutebolGS.iso
             EBOOT.PBP
+            
