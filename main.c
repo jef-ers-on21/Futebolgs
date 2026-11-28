@@ -2730,10 +2730,16 @@ static void app_food(void) {
 }
 
 /* ---------- mundo aberto ---------- */
-#define WW 2880
-#define WH 1152
 #define CW 960
 #define CH 576
+#define GAPX 2400
+#define GAPY 1600
+#define CSX (CW + GAPX)
+#define CSY (CH + GAPY)
+#define WW (3 * CW + 2 * GAPX)
+#define WH (2 * CH + GAPY)
+#define CITYX(c) (((c) % 3) * CSX)
+#define CITYY(c) (((c) / 3) * CSY)
 #define NLT 13
 #define NGL (6 * NLT)
 #define NDH 30
@@ -2763,7 +2769,7 @@ static void build_world(void) {
     static const int dxs[5] = {350, 560, 650, 740, 830};
     int c, k;
     for (c = 0; c < 6; c++) {
-        int ox = (c % 3) * CW, oy = (c / 3) * CH;
+        int ox = CITYX(c), oy = CITYY(c);
         for (k = 0; k < NLT; k++) { GL[c * NLT + k] = LT[k]; GL[c * NLT + k].x += ox; GL[c * NLT + k].y += oy; }
         for (k = 0; k < 5; k++) {
             Loc *d = &DH[c * 5 + k];
@@ -2774,8 +2780,12 @@ static void build_world(void) {
     }
 }
 static int cur_city(void) {
-    int c = (wpx / CW) + (wpy / CH) * 3;
-    return (c < 0) ? 0 : ((c > 5) ? 5 : c);
+    int col = (wpx + GAPX / 2) / CSX, row = (wpy + GAPY / 2) / CSY;
+    if (col < 0) col = 0;
+    if (col > 2) col = 2;
+    if (row < 0) row = 0;
+    if (row > 1) row = 1;
+    return row * 3 + col;
 }
 static void place_at(int city, int type) {
     const Loc *l = &GL[city * NLT + type];
@@ -3318,8 +3328,17 @@ static void interior(int t) {
 static void interact(int i) { fade_out(); interior(i % NLT); }
 
 /* ---------- desenho do mundo ---------- */
+static int gap_tree(int tx_, int ty_) {
+    int x = tx_ * 16, y = ty_ * 16, xr = x % CSX, yr = y % CSY;
+    if (xr < CW && yr < CH) return 0;
+    if (yr >= 220 && yr < 276) return 0;
+    if (yr >= CH && xr >= 128 && xr < 192) return 0;
+    if (xr >= CW && yr >= 220 && yr < 276) return 0;
+    return ((tx_ * 7 + ty_ * 13 + (tx_ ^ ty_) * 5) % 19) == 0;
+}
 static int blocked(int x, int y) {
     int i;
+    if (x >= 0 && y >= 0 && gap_tree(x / 16, y / 16)) return 1;
     if (x < 10 || x > WW - 10 || y < 20 || y > WH - 8) return 1;
     for (i = 0; i < NGL; i++) {
         const Loc *l = &GL[i];
@@ -3381,7 +3400,7 @@ static void draw_decor(const Loc *l, int cx, int cy) {
 
 /* ---------- populacao: pedestres e carros ---------- */
 #define NNPC 30
-#define NCAR 14
+#define NCAR 40
 typedef struct { float x, y; int dx, dy, t; Look lk; u32 c1, c2; } Npc;
 typedef struct { float x; int y, dir, city; float sp; u32 col; } Car;
 static Npc npc[NNPC];
@@ -3390,7 +3409,7 @@ static void world_pop_init(void) {
     int i;
     for (i = 0; i < NNPC; i++) {
         Npc *n = &npc[i];
-        int c = i % 6, ox = (c % 3) * CW, oy = (c / 3) * CH;
+        int c = i % 6, ox = CITYX(c), oy = CITYY(c);
         n->x = (float)(ox + 20 + rand() % (CW - 40)); n->y = (float)(oy + 238 + rand() % 22);
         if (i % 3 == 0) { n->x = (float)(ox + 148 + rand() % 24); n->y = (float)(oy + 20 + rand() % (CH - 40)); }
         n->dx = (rand() % 3) - 1; n->dy = 0; n->t = rand() % 100;
@@ -3402,9 +3421,9 @@ static void world_pop_init(void) {
     }
     for (i = 0; i < NCAR; i++) {
         Car *c = &cars[i];
-        int ox = ((i % 6) % 3) * CW, oy = ((i % 6) / 3) * CH;
-        c->city = i % 6; c->y = oy + ((i & 1) ? 254 : 240); c->dir = (i & 1) ? -1 : 1;
-        c->sp = 1.0f + (rand() % 12) / 10.0f; c->x = (float)(ox + rand() % CW); c->col = PAL[rand() % 12];
+        int row = (i / 2) % 2;
+        c->city = row; c->y = row * CSY + ((i & 1) ? 254 : 240); c->dir = (i & 1) ? -1 : 1;
+        c->sp = 1.0f + (rand() % 12) / 10.0f; c->x = (float)(rand() % WW); c->col = PAL[rand() % 12];
     }
 }
 static void world_pop_update(void) {
@@ -3425,10 +3444,9 @@ static void world_pop_update(void) {
     }
     for (i = 0; i < NCAR; i++) {
         Car *c = &cars[i];
-        int ox = ((c->city) % 3) * CW;
         c->x += c->dir * c->sp;
-        if (c->x > ox + CW) c->x = (float)ox;
-        if (c->x < ox) c->x = (float)(ox + CW);
+        if (c->x > WW) c->x = 0.0f;
+        if (c->x < 0) c->x = (float)WW;
     }
 }
 static void draw_npcs(int cx, int cy, int front) {
@@ -3474,7 +3492,7 @@ static void npc_talk(int i) {
     else { addmoral(1); msg2(TK[(i + S.day) % 6], "Conversa animada! Moral +1"); }
 }
 static void minimap(void) {
-    int c = cur_city(), ox = (c % 3) * CW, oy = (c / 3) * CH, k, x0 = SW - 92, y0 = 26;
+    int c = cur_city(), ox = CITYX(c), oy = CITYY(c), k, x0 = SW - 92, y0 = 26, mx, my;
     rect(x0 - 1, y0 - 1, 90, 53, C_DARK);
     rect(x0, y0, 88, 51, RGB(40, 110, 50));
     rect(x0, y0 + 232 * 51 / 576, 88, 3, RGB(150, 150, 150));
@@ -3484,7 +3502,12 @@ static void minimap(void) {
         int w = l->w * 88 / 960, h = l->h * 51 / 576;
         rect(x0 + (l->x - ox) * 88 / 960, y0 + (l->y - oy) * 51 / 576, (w < 3) ? 3 : w, (h < 3) ? 3 : h, l->col);
     }
-    rect(x0 + (wpx - ox) * 88 / 960 - 1, y0 + (wpy - oy) * 51 / 576 - 1, 3, 3, ((wt / 10) % 2) ? C_WHITE : RGB(255, 60, 60));
+    mx = (wpx - ox) * 88 / 960; my = (wpy - oy) * 51 / 576;
+    if (mx < 0) mx = 0;
+    if (mx > 86) mx = 86;
+    if (my < 0) my = 0;
+    if (my > 49) my = 49;
+    rect(x0 + mx - 1, y0 + my - 1, 3, 3, ((wt / 10) % 2) ? C_WHITE : RGB(255, 60, 60));
 }
 static void obj_text(char *o, int n) {
     int nm = star_next_match_day(), dd = nm - S.day, k, hc = 0;
@@ -3508,8 +3531,29 @@ static void world_draw(void) {
     for (ty_ = camy / 16; ty_ <= (camy + SH) / 16; ty_++)
         for (tx_ = camx / 16; tx_ <= (camx + SW) / 16; tx_++)
             if (((tx_ * 7 + ty_ * 13) % 5) == 0) rect(tx_ * 16 - camx + 4, ty_ * 16 - camy + 5, 4, 2, dim(RGB(44, 128, 52)));
+    for (ty_ = camy / 16; ty_ <= (camy + SH) / 16; ty_++)
+        for (tx_ = camx / 16; tx_ <= (camx + SW) / 16; tx_++)
+            if (gap_tree(tx_, ty_)) {
+                int px_ = tx_ * 16 - camx, py_ = ty_ * 16 - camy;
+                rect(px_ + 6, py_ + 8, 4, 8, dim(RGB(100, 65, 30)));
+                rect(px_ + 1, py_ - 6, 14, 14, dim(RGB(30, 100, 40)));
+                rect(px_ + 4, py_ - 9, 8, 5, dim(RGB(38, 120, 48)));
+            }
     for (c = 0; c < 6; c++) {
-        int ox = (c % 3) * CW - camx, oy = (c / 3) * CH - camy;
+        int ox = CITYX(c) - camx, oy = CITYY(c) - camy;
+        if (c % 3 < 2) {
+            rect(ox + CW, oy + 224, GAPX, 48, dim(RGB(170, 170, 160)));
+            rect(ox + CW, oy + 232, GAPX, 32, dim(RGB(70, 70, 75)));
+            for (k = 0; k < GAPX; k += 40) rect(ox + CW + k, oy + 247, 20, 2, dim(RGB(230, 230, 120)));
+        }
+        if (c < 3) {
+            rect(ox + 136, oy + CH, 48, GAPY, dim(RGB(170, 170, 160)));
+            rect(ox + 144, oy + CH, 32, GAPY, dim(RGB(70, 70, 75)));
+            for (k = 0; k < GAPY; k += 40) rect(ox + 159, oy + CH + k, 2, 20, dim(RGB(230, 230, 120)));
+        }
+    }
+    for (c = 0; c < 6; c++) {
+        int ox = CITYX(c) - camx, oy = CITYY(c) - camy;
         rect(ox, oy + 224, CW, 48, dim(RGB(170, 170, 160)));
         rect(ox, oy + 232, CW, 32, dim(RGB(70, 70, 75)));
         for (k = 0; k < CW; k += 40) rect(ox + k, oy + 247, 20, 2, dim(RGB(230, 230, 120)));
@@ -3518,6 +3562,29 @@ static void world_draw(void) {
         for (k = 0; k < CH; k += 40) rect(ox + 159, oy + k, 2, 20, dim(RGB(230, 230, 120)));
         rect(ox + 472, oy + 264, 48, CH - 264, dim(RGB(170, 170, 160)));
         rect(ox + 480, oy + 264, 32, CH - 264, dim(RGB(70, 70, 75)));
+    }
+    for (c = 0; c < 6; c++) {
+        int ox = CITYX(c) - camx, oy = CITYY(c) - camy;
+        char sg[32];
+        if (c % 3 < 2) {
+            snprintf(sg, sizeof sg, "-> %s", CITYN[c + 1]);
+            rect(ox + CW + 22, oy + 204, (int)strlen(sg) * 8 + 8, 14, C_DARK);
+            txs(ox + CW + 26, oy + 207, C_WHITE, sg);
+        }
+        if (c % 3 > 0) {
+            snprintf(sg, sizeof sg, "<- %s", CITYN[c - 1]);
+            rect(ox - 30 - (int)strlen(sg) * 8 - 8, oy + 204, (int)strlen(sg) * 8 + 8, 14, C_DARK);
+            txs(ox - 26 - (int)strlen(sg) * 8, oy + 207, C_WHITE, sg);
+        }
+        if (c < 3) {
+            snprintf(sg, sizeof sg, "v %s", CITYN[c + 3]);
+            rect(ox + 190, oy + CH + 40, (int)strlen(sg) * 8 + 8, 14, C_DARK);
+            txs(ox + 194, oy + CH + 43, C_WHITE, sg);
+        } else {
+            snprintf(sg, sizeof sg, "^ %s", CITYN[c - 3]);
+            rect(ox + 190, oy - 60, (int)strlen(sg) * 8 + 8, 14, C_DARK);
+            txs(ox + 194, oy - 57, C_WHITE, sg);
+        }
     }
     draw_cars(camx, camy);
     for (i = 0; i < NGL; i++) if (GL[i].y + GL[i].h <= wpy) draw_building(&GL[i], i % NLT, camx, camy);
@@ -3618,7 +3685,7 @@ static void mode_star(void) {
             star_init_attrs();
             star_league_reset();
             new_goals(); S.tut = 0; S.histn = 0;
-            wpx = ((S.star_team / GSZ) % 3) * CW + 90; wpy = ((S.star_team / GSZ) / 3) * CH + 214;
+            wpx = CITYX(S.star_team / GSZ) + 90; wpy = CITYY(S.star_team / GSZ) + 214;
             gen_star_offers();
             save_game();
             star_world();
